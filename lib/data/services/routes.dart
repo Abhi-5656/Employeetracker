@@ -15,6 +15,12 @@ class Routes {
   static String employeeShiftRoster(String employeeId, String startYmd, String endYmd)
   => '/api/employee/shifts/employee-shift-roster/$employeeId?startDate=$startYmd&endDate=$endYmd';
 
+  // ADD THIS:
+  static String leaveAndHolidays(String employeeId)
+  => '/api/dashboard/leave-and-holidays/$employeeId';
+
+  // ✅ ADD THIS
+  static String get applyLeave => '/api/leave-requests/apply';
 // If your “assigned shift” uses another endpoint, add it here later.
 // Example shape:
 // static String assignedShiftForDate(String empId, String ymd) =>

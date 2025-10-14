@@ -460,6 +460,12 @@ class ApiClient {
   String get _baseHost {
     return Environment().config.baseUrl;
   }
+  bool _isAuthFreePath(String path) {
+    final p = path.startsWith('/') ? path : '/$path';
+    if (p.contains('/api/auth/login'))   return true;
+    if (p.contains('/api/auth/refresh')) return true;
+    return false;
+  }
 
   Uri _uri(String path) {
     // absolute URL passthrough
@@ -512,7 +518,18 @@ class ApiClient {
 
 
   Future<Map<String, dynamic>> getJson(String path) async {
-    final res = await http.get(_uri(path), headers: _headers());
+    if (!_isAuthFreePath(path)) {
+      await AuthService.instance.ensureValidAccessToken();
+    }
+
+    var res = await http.get(_uri(path), headers: _headers());
+    if (res.statusCode == 401 && !_isAuthFreePath(path)) {
+      final ok = await AuthService.instance.ensureValidAccessToken(forceRefresh: true);
+      if (ok) {
+        res = await http.get(_uri(path), headers: _headers());
+      }
+    }
+
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw _httpError('GET', path, res);
     }
@@ -521,7 +538,18 @@ class ApiClient {
   }
 
   Future<List<dynamic>> getList(String path) async {
-    final res = await http.get(_uri(path), headers: _headers());
+    if (!_isAuthFreePath(path)) {
+      await AuthService.instance.ensureValidAccessToken();
+    }
+
+    var res = await http.get(_uri(path), headers: _headers());
+    if (res.statusCode == 401 && !_isAuthFreePath(path)) {
+      final ok = await AuthService.instance.ensureValidAccessToken(forceRefresh: true);
+      if (ok) {
+        res = await http.get(_uri(path), headers: _headers());
+      }
+    }
+
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw _httpError('GET', path, res);
     }
@@ -534,18 +562,36 @@ class ApiClient {
         Map<String, dynamic>? body,
         Map<String, String>? headers,
       }) async {
-    final res = await http.post(
+    if (!_isAuthFreePath(path)) {
+      await AuthService.instance.ensureValidAccessToken();
+    }
+
+    var res = await http.post(
       _uri(path),
       headers: _headers(extra: headers),
       body: body == null ? null : jsonEncode(body),
     );
+
+    if (res.statusCode == 401 && !_isAuthFreePath(path)) {
+      final ok = await AuthService.instance.ensureValidAccessToken(forceRefresh: true);
+      if (ok) {
+        res = await http.post(
+          _uri(path),
+          headers: _headers(extra: headers),
+          body: body == null ? null : jsonEncode(body),
+        );
+      }
+    }
+
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw _httpError('POST', path, res);
     }
+
     final text = res.body;
     if (text.isEmpty) return <String, dynamic>{};
     return jsonDecode(text) as Map<String, dynamic>;
   }
+
 
   Exception _httpError(String method, String path, http.Response res) {
     // Throw the custom exception that includes status and body

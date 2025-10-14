@@ -113,11 +113,10 @@ class AuthResponse {
       return null;
     }
 
-    final access = _pickStr(['accessToken', 'access_token', 'token']) ?? '';
     return AuthResponse(
-      accessToken: access,
-      refreshToken: _pickStr(['refreshToken', 'refresh_token']),
-      expiresIn: _pickInt(['expiresIn', 'expires_in']),
+      accessToken: _pickStr(['accessToken','access_token','token']) ?? '',
+      refreshToken: _pickStr(['refreshToken','refresh_token']),
+      expiresIn: _pickInt(['expiresIn','expires_in']),
     );
   }
 }
@@ -143,78 +142,6 @@ Map<String, dynamic> _decodeJwtPayload(String jwt) {
 class AuthApi {
   AuthApi._();
   static final AuthApi instance = AuthApi._();
-
-  /// Backend expects:
-  /// POST /{tenantId}/api/auth/login
-  /// Content-Type: application/json
-  /// { "email": "<email>", "password": "<password>" }
-  // Future<void> login({required String email, required String password}) async {
-  //   // 1) Login
-  //   final json = await ApiClient.instance.postJson(
-  //     Routes.login,
-  //     body: {'email': email, 'password': password},
-  //   );
-  //
-  //   // Extract tokens and basic info
-  //   final token  = (json['accessToken'] as String?) ?? (json['token'] as String?);
-  //   final refreshToken = (json['refreshToken'] as String?);
-  //   final employeeName = (json['employeeName'] as String?) ?? (json['fullName'] as String?);
-  //
-  //   // Check if employee ID is provided directly in the login response
-  //   final employeeIdFromLogin = (json['employeeId'] as String?) ?? (json['empId'] as String?) ?? (json['id'] as String?);
-  //
-  //   if (token == null || token.isEmpty) {
-  //     throw StateError('Login response missing token.');
-  //   }
-  //
-  //   // Store token (+ optional employeeId/employeeName).
-  //   AuthService.instance.applyLogin(
-  //     accessToken: token,
-  //     employeeId: employeeIdFromLogin ?? '',
-  //     refreshToken: refreshToken,
-  //     employeeName: employeeName,
-  //   );
-  //
-  //   // Placeholder for any error message from the /me endpoint
-  //   String? meErrorMessage;
-  //
-  //   // 2) Fetch /me to resolve the definitive employeeId (and canonical name)
-  //   try {
-  //     final me = await ApiClient.instance.getJson(Routes.me);
-  //     final empId = (me['employeeId'] as String?) ?? (me['empId'] as String?) ?? (me['id'] as String?);
-  //     final name  = (me['employeeName'] as String?) ?? (me['fullName'] as String?) ?? (me['name'] as String?);
-  //
-  //     AuthService.instance.updateProfile(employeeId: empId, employeeName: name);
-  //   } on ApiException catch (e) { // <<< CATCHES THE STRUCTURED API ERROR
-  //     // Case A: /me call failed (e.g., 401 Unauthorized, 404 Not Found).
-  //     // We prioritize reporting the HTTP status for easy debugging.
-  //     meErrorMessage = 'Profile fetch failed. Status ${e.statusCode} on ${e.path}';
-  //     log('Warning: Failed to fetch /me endpoint: $meErrorMessage. Body: ${e.body}', name: 'AuthApi');
-  //   } catch (e) {
-  //     // Catch any other exceptions (e.g., JSON decoding error)
-  //     meErrorMessage = 'Non-HTTP error during profile fetch: $e';
-  //     log('Warning: Non-API error fetching /me: $meErrorMessage', name: 'AuthApi');
-  //   }
-  //
-  //   // CRITICAL CHECK: Ensure we have a valid employee ID.
-  //   if (AuthService.instance.employeeId == null || AuthService.instance.employeeId!.isEmpty) {
-  //
-  //     String message;
-  //
-  //     if (meErrorMessage != null) {
-  //       // Report the captured API error clearly.
-  //       message = 'Authentication successful, but required Employee ID could not be resolved. $meErrorMessage';
-  //     } else if (employeeIdFromLogin == null) {
-  //       // This means /me succeeded (HTTP 200) but didn't contain the ID field.
-  //       message = 'Authentication successful, but the profile endpoint (${Routes.me}) succeeded without returning a valid Employee ID field.';
-  //     } else {
-  //       message = 'Login successful, but a valid Employee ID could not be set.';
-  //     }
-  //
-  //     log('Final Login Failure: $message', name: 'AuthApi');
-  //     throw StateError(message);
-  //   }
-  // }
 
   Future<void> login({required String email, required String password}) async {
     // 1) authenticate
@@ -273,14 +200,10 @@ class AuthApi {
   /// POST /{tenant}/api/auth/refresh  { "refreshToken": "<token>" }
   /// Returns new access token (and optionally a new refresh token + expiry).
   Future<AuthResponse?> refresh({required String refreshToken}) async {
-    // NOTE: If your ApiClient auto-attaches Authorization, that’s fine.
-    // Refresh endpoints normally ignore an expired bearer.
     final json = await ApiClient.instance.postJson(
       Routes.refresh,
       body: {'refreshToken': refreshToken},
     );
-
-    // Map to a typed response; return null if no usable access token
     final res = AuthResponse.fromJson(json);
     if (res.accessToken.isEmpty) return null;
     return res;
