@@ -452,7 +452,7 @@ class _RootShellState extends State<RootShell> {
                 onClockIn: () => _toast('✅ Clocked in successfully at 08:00'),
                 onCantMake: _gotoReplacement,
                 onViewTeam: () => _toast('👥 Team screen coming soon'),
-                deferFetch: true, // ⬅️ ensures no network on first render
+                // deferFetch: true, // ⬅️ ensures no network on first render
               ),
               TimesheetScreen(
                 onSaveDraft: () => _toast('💾 Draft saved'),

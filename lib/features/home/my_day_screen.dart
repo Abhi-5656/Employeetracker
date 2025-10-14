@@ -304,10 +304,11 @@
 //   }
 // }
 import 'package:flutter/material.dart';
-import '../../data/repositories/myday_repository.dart';
-import '../../shared/ui.dart';
-import '../../data/services/auth_service.dart';  // <— ADD THIS
 import 'package:intl/intl.dart';
+
+import '../../data/repositories/myday_repository.dart';
+import '../../data/services/auth_service.dart';
+import '../../shared/ui.dart';
 
 class MyDayScreen extends StatefulWidget {
   final int bellBadge;
@@ -324,22 +325,25 @@ class MyDayScreen extends StatefulWidget {
     required this.onClockIn,
     required this.onCantMake,
     required this.onViewTeam,
-    this.deferFetch = true,
+    this.deferFetch = false,
   });
 
   @override
   State<MyDayScreen> createState() => _MyDayScreenState();
 }
 
-class _MyDayScreenState extends State<MyDayScreen> {
-  Future<MyDayData>? _future; // null => no fetch yet
+class _MyDayScreenState extends State<MyDayScreen>
+    with AutomaticKeepAliveClientMixin<MyDayScreen> {   // <-- ADD THIS MIXIN
+  Future<MyDayData>? _future;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
-    if (!widget.deferFetch) {
-      _future = MyDayRepository.instance.load();
-    }
+    // Always trigger the initial load
+    _future = MyDayRepository.instance.load();
   }
 
   void _triggerFetch() {
@@ -350,7 +354,8 @@ class _MyDayScreenState extends State<MyDayScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // No future yet (deferred): render shell, no network
+    super.build(context); // <-- ADD THIS (required when using the mixin)
+    // No future yet (deferred): render shell, no network, NO use of `d`
     if (_future == null) {
       return GradientScaffold(
         title: 'WorkForce',
@@ -370,9 +375,10 @@ class _MyDayScreenState extends State<MyDayScreen> {
           children: [
             const SizedBox(height: 8),
             _GreetingCard(
-              name: AuthService.instance.displayName,   // <— name from JWT / email
+              name: AuthService.instance.displayName,
               sub: DateFormat('EEEE, dd MMM yyyy').format(DateTime.now()),
             ),
+            // All placeholders here; do NOT reference `d`
             ShiftCard(
               timeRange: '—',
               status: '—',
@@ -380,8 +386,8 @@ class _MyDayScreenState extends State<MyDayScreen> {
               details: const [
                 ShiftDetail(label: 'Location', value: '—'),
                 ShiftDetail(label: 'Duration', value: '—'),
-                ShiftDetail(label: 'Type', value: '—'),
-                ShiftDetail(label: 'Next', value: '—'),
+                ShiftDetail(label: 'Type',     value: '—'),
+                ShiftDetail(label: 'Next',     value: '—'),
               ],
               actions: [
                 ActionBtn.primary('Clock In', widget.onClockIn),
@@ -418,7 +424,7 @@ class _MyDayScreenState extends State<MyDayScreen> {
       );
     }
 
-    // When a fetch is requested, use FutureBuilder as before
+    // When a fetch is requested, use FutureBuilder
     return FutureBuilder<MyDayData>(
       future: _future,
       builder: (context, snap) {
@@ -429,10 +435,11 @@ class _MyDayScreenState extends State<MyDayScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 BadgeIcon(icon: Icons.notifications_rounded, badge: widget.bellBadge),
+                // AFTER:
                 IconButton(
-                  tooltip: 'Cancel / reload later',
-                  onPressed: () => setState(() => _future = null),
-                  icon: const Icon(Icons.close),
+                  tooltip: 'Reload',
+                  onPressed: _triggerFetch,          // <-- just reload; do NOT set _future to null
+                  icon: const Icon(Icons.refresh),
                 ),
               ],
             ),
@@ -476,15 +483,17 @@ class _MyDayScreenState extends State<MyDayScreen> {
             children: [
               const SizedBox(height: 8),
               _GreetingCard(name: d.employeeName, sub: d.dateLabel),
+
+              // Bind dynamic fields from repository result
               ShiftCard(
                 timeRange: d.timeRange,
                 status: d.status,
                 statusColor: Color(d.statusColorArgb),
-                details: const [
-                  ShiftDetail(label: 'Location', value: '—'),
-                  ShiftDetail(label: 'Duration', value: '—'),
-                  ShiftDetail(label: 'Type', value: '—'),
-                  ShiftDetail(label: 'Next', value: '—'),
+                details: [
+                  ShiftDetail(label: 'Location', value: d.location),
+                  ShiftDetail(label: 'Duration', value: d.duration),
+                  ShiftDetail(label: 'Type',     value: d.type),
+                  ShiftDetail(label: 'Next',     value: d.next),
                 ],
                 actions: [
                   ActionBtn.primary('Clock In', widget.onClockIn),
@@ -492,6 +501,7 @@ class _MyDayScreenState extends State<MyDayScreen> {
                   ActionBtn.danger('Can\'t Make?', widget.onCantMake),
                 ],
               ),
+
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
@@ -536,6 +546,7 @@ class _GreetingCard extends StatelessWidget {
   final String name;
   final String sub;
   const _GreetingCard({required this.name, required this.sub});
+
   String _greetingNow() {
     final h = DateTime.now().hour;
     if (h < 12) return 'Good morning';
@@ -543,6 +554,7 @@ class _GreetingCard extends StatelessWidget {
     if (h < 21) return 'Good evening';
     return 'Good night';
   }
+
   @override
   Widget build(BuildContext context) {
     final greeting = _greetingNow();
@@ -560,3 +572,4 @@ class _GreetingCard extends StatelessWidget {
     );
   }
 }
+

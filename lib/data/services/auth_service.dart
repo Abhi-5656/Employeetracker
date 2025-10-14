@@ -261,6 +261,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../services/tenant_service.dart';
+import 'dart:convert'; // for base64/json decode
+
 import 'auth_api.dart'; // your existing API wrapper for /login and /refresh
 /// Legacy-compatible session facade expected by older code.
 /// (Some of your code may still reference this.)
@@ -296,6 +298,71 @@ class AuthService {
   Future<void> updateExpiryEpoch(int epochSeconds) async {
     _accessExpiryEpoch = epochSeconds;
     await _storage.write(key: _kKeyExpiryEpoch, value: epochSeconds.toString());
+  }
+
+  Map<String, dynamic>? _decodeJwtPayload(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+
+      String norm(String s) {
+        switch (s.length % 4) {
+          case 0: return s;
+          case 2: return s + '==';
+          case 3: return s + '=';
+          default: return s; // malformed
+        }
+      }
+
+      final payload = base64Url.decode(norm(parts[1]));
+      return jsonDecode(utf8.decode(payload)) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Public: used by ApiClient before/after requests.
+  Future<bool> ensureValidAccessToken({bool forceRefresh = false}) async {
+    if (!forceRefresh && _isAccessTokenValid) return true;
+    return await _refreshAccessToken();
+  }
+
+  Future<bool> _refreshAccessToken() async {
+    if (_refreshToken == null || _refreshToken!.isEmpty) return false;
+
+    try {
+      final r = await AuthApi.instance.refresh(refreshToken: _refreshToken!);
+      if (r == null || r.accessToken.isEmpty) return false;
+
+      _accessToken = r.accessToken;
+
+      // Prefer expiresIn; else decode JWT again
+      if (r.expiresIn != null && r.expiresIn! > 0) {
+        final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        _accessExpiryEpoch = nowSec + r.expiresIn!;
+      } else {
+        final claims = _decodeJwtPayload(_accessToken!);
+        final exp = claims?['exp'];
+        _accessExpiryEpoch = (exp is num) ? exp.toInt() : null;
+      }
+
+      // If server rotated refresh token
+      if (r.refreshToken != null && r.refreshToken!.isNotEmpty) {
+        _refreshToken = r.refreshToken;
+      }
+
+      // Sync legacy
+      final s = SessionController.instance;
+      s.token        = _accessToken;
+      s.refreshToken = _refreshToken;
+
+      // Persist the new tokens + expiry
+      await _persist();
+      return true;
+    } catch (e) {
+      debugPrint('Refresh failed: $e');
+      return false;
+    }
   }
 
   /// Best-effort display name without hitting the network.
@@ -396,6 +463,17 @@ class AuthService {
     _email = email;                 // ✅ FIX: no local var; assign the field
     _employeeId = employeeId;
     _employeeName = employeeName;
+
+    // Derive expiry/name/email from JWT if present
+    final claims = _decodeJwtPayload(accessToken);
+    if (claims != null) {
+      final exp = claims['exp'];
+      if (exp is num) {
+        _accessExpiryEpoch = exp.toInt(); // seconds since epoch
+      }
+      _employeeName ??= claims['fullName'] as String?;
+      _email        ??= claims['sub']      as String?;
+    }
     // _accessExpiryEpoch stays null unless server gives it elsewhere
     isAuthenticated.value = true;
 

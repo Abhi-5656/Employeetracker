@@ -16,13 +16,15 @@ class ShiftService {
     return id;
   }
 
-  Future<EmployeeShiftRoster?> getTodayShift() async {
+  Future<EmployeeShiftRoster?> getShiftForDate(DateTime day) async {
     final empId = _requireEmployeeId();
-    final ymd = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final ymd = DateFormat('yyyy-MM-dd').format(day);
     final list = await ApiClient.instance.getList(
       Routes.employeeShiftRoster(empId, ymd, ymd),
     );
     if (list.isEmpty) return null;
     return EmployeeShiftRoster.fromJson(list.first as Map<String, dynamic>);
   }
+
+  Future<EmployeeShiftRoster?> getTodayShift() => getShiftForDate(DateTime.now());
 }
