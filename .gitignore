@@ -1,0 +1,37 @@
+﻿# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# Java / Spring
+target/
+*.log
+
+# Node / Angular
+node_modules/
+dist/
+.angular/
+*.cache/
+coverage/
+
+# Flutter / Android
+build/
+.gradle/
+.local.properties
+**/GeneratedPluginRegistrant.*
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework/
+**/ios/Flutter/Flutter.podspec
+**/android/.cxx/
+**/android/local.properties
+
+# Env & secrets
+.env
+.env.*
+*.keystore
+*.jks
