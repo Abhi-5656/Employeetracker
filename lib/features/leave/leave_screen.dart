@@ -343,12 +343,23 @@ class _LeaveScreenState extends State<LeaveScreen>
   String? _leaveType; // last picked label
   bool _isApplying = false;
 
+  // NEW: in-page submit overlay flag (replaces blocking dialog)
+  bool _submitting = false;
+
   // form state (used only when _isApplying == true)
   DateTime _from = DateTime(2024, 9, 25);
   DateTime _to = DateTime(2024, 9, 26);
   bool _halfDay = false;
   bool _includeWeekends = true;
   final TextEditingController _reason = TextEditingController();
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+    );
+  }
 
   @override
   bool get wantKeepAlive => true;
@@ -442,7 +453,7 @@ class _LeaveScreenState extends State<LeaveScreen>
         final d = snap.data!;
         _leaveType ??= (d.dropdownLabels.isNotEmpty ? d.dropdownLabels.first : null);
 
-        // If we are in "apply mode", render the form page inline with the same structure
+        // APPLY MODE: inline form with same structure, plus in-page overlay when submitting
         if (_isApplying) {
           final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
           return GradientScaffold(
@@ -452,177 +463,186 @@ class _LeaveScreenState extends State<LeaveScreen>
               onPressed: _exitApply,
               icon: const Icon(Icons.arrow_back),
             ),
-            child: CustomScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              slivers: [
-                const SliverToBoxAdapter(child: SizedBox(height: 12)),
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  sliver: SliverToBoxAdapter(
-                    child: Card(
-                      margin: EdgeInsets.zero,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            DropdownButtonFormField<String>(
-                              value: _leaveType,
-                              items: d.dropdownLabels
-                                  .map((label) => DropdownMenuItem<String>(
-                                value: label,
-                                child: Text(label),
-                              ))
-                                  .toList(),
-                              onChanged: (v) => setState(() => _leaveType = v),
-                              decoration: _inputDeco('Leave Type'),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
+            // Stack lets us overlay a spinner without changing routes (no black screen)
+            child: Stack(
+              children: [
+                CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                  slivers: [
+                    const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      sliver: SliverToBoxAdapter(
+                        child: Card(
+                          margin: EdgeInsets.zero,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
                               children: [
-                                Expanded(
-                                  child: DateField(
-                                    label: 'From Date',
-                                    date: _from,
-                                    onTap: () => _pickDate(true),
+                                DropdownButtonFormField<String>(
+                                  value: _leaveType,
+                                  items: d.dropdownLabels
+                                      .map((label) => DropdownMenuItem<String>(
+                                    value: label,
+                                    child: Text(label),
+                                  ))
+                                      .toList(),
+                                  onChanged: (v) => setState(() => _leaveType = v),
+                                  decoration: _inputDeco('Leave Type'),
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: DateField(
+                                        label: 'From Date',
+                                        date: _from,
+                                        onTap: () => _pickDate(true),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: DateField(
+                                        label: 'To Date',
+                                        date: _to,
+                                        onTap: () => _pickDate(false),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                SwitchListTile(
+                                  value: _halfDay,
+                                  onChanged: (v) => setState(() => _halfDay = v),
+                                  title: const Text('Half day (AM/PM)'),
+                                ),
+                                SwitchListTile(
+                                  value: _includeWeekends,
+                                  onChanged: (v) => setState(() => _includeWeekends = v),
+                                  title: const Text('Include weekends/holidays'),
+                                ),
+                                const SizedBox(height: 8),
+                                TextField(
+                                  controller: _reason,
+                                  maxLines: 3,
+                                  decoration: _inputDeco(
+                                    'Reason',
+                                    hint: 'Please provide reason for leave...',
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: DateField(
-                                    label: 'To Date',
-                                    date: _to,
-                                    onTap: () => _pickDate(false),
-                                  ),
+                                const SizedBox(height: 12),
+                                const InfoBanner(
+                                  icon: Icons.warning_amber_rounded,
+                                  title: 'Team Impact',
+                                  text: '2 other team members are on leave the same day',
+                                  color: Color(0xFFFFF3CD),
+                                  fg: Color(0xFF856404),
+                                ),
+                                const SizedBox(height: 8),
+                                const InfoBanner(
+                                  icon: Icons.route_rounded,
+                                  title: 'Approval Route',
+                                  text: 'You → Supervisor → HR → Auto-approve',
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: ActionBtn.outline('Save Draft', widget.onSaveDraft, context),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: ActionBtn.primary('Submit', () async {
+                                        if (_leaveType == null) return;
+
+                                        // Resolve selected policy -> id
+                                        final labels = d.dropdownLabels;
+                                        final idx = labels.indexOf(_leaveType!);
+                                        if (idx < 0 || idx >= d.policies.length) {
+                                          if (!mounted) return;
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('Invalid leave type selected')),
+                                          );
+                                          return;
+                                        }
+
+                                        final policy = d.policies[idx];
+                                        final policyId = policy.leavePolicyId; // DTO field
+                                        if (policyId == null) {
+                                          if (!mounted) return;
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('This leave policy has no ID.')),
+                                          );
+                                          return;
+                                        }
+
+                                        // IN-PAGE OVERLAY (no dialog; avoids black screen)
+                                        setState(() => _submitting = true);
+                                        try {
+                                          await LeaveService.instance.applyLeave(
+                                            leavePolicyId: policyId,
+                                            from: _from,
+                                            to: _to,
+                                            halfDay: _halfDay,
+                                            includeWeekends: _includeWeekends,
+                                            reason: _reason.text,
+                                          );
+
+                                          if (!mounted) return;
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Leave request submitted'),
+                                              behavior: SnackBarBehavior.floating,
+                                            ),
+                                          );
+                                          // Exit form and refresh balances/policies
+                                          _exitApply();
+                                          await _reload();
+                                        } catch (e) {
+                                          if (!mounted) return;
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('Failed to submit: $e'),
+                                              behavior: SnackBarBehavior.floating,
+                                            ),
+                                          );
+                                        } finally {
+                                          if (mounted) setState(() => _submitting = false);
+                                        }
+                                      }),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 8),
-                            SwitchListTile(
-                              value: _halfDay,
-                              onChanged: (v) => setState(() => _halfDay = v),
-                              title: const Text('Half day (AM/PM)'),
-                            ),
-                            SwitchListTile(
-                              value: _includeWeekends,
-                              onChanged: (v) => setState(() => _includeWeekends = v),
-                              title: const Text('Include weekends/holidays'),
-                            ),
-                            const SizedBox(height: 8),
-                            TextField(
-                              controller: _reason,
-                              maxLines: 3,
-                              decoration: _inputDeco(
-                                'Reason',
-                                hint: 'Please provide reason for leave...',
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            const InfoBanner(
-                              icon: Icons.warning_amber_rounded,
-                              title: 'Team Impact',
-                              text:
-                              '2 other team members are on leave the same day',
-                              color: Color(0xFFFFF3CD),
-                              fg: Color(0xFF856404),
-                            ),
-                            const SizedBox(height: 8),
-                            const InfoBanner(
-                              icon: Icons.route_rounded,
-                              title: 'Approval Route',
-                              text: 'You → Supervisor → HR → Auto-approve',
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: ActionBtn.outline('Save Draft', widget.onSaveDraft, context),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: ActionBtn.primary('Submit', () async {
-                                    if (_leaveType == null) return;
-
-                                    // Resolve selected policy -> id
-                                    final labels = d.dropdownLabels;
-                                    final idx = labels.indexOf(_leaveType!);
-                                    if (idx < 0 || idx >= d.policies.length) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Invalid leave type selected')),
-                                      );
-                                      return;
-                                    }
-
-                                    final policy = d.policies[idx];
-                                    final policyId = policy.leavePolicyId; // whichever your DTO provides
-                                    if (policyId == null) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('This leave policy has no ID.')),
-                                      );
-                                      return;
-                                    }
-
-                                    // Call API
-                                    try {
-                                      // show light loader
-                                      showDialog(
-                                        context: context,
-                                        barrierDismissible: false,
-                                        builder: (_) => const Center(child: CircularProgressIndicator()),
-                                      );
-
-                                      await LeaveService.instance.applyLeave(
-                                        leavePolicyId: policyId,
-                                        from: _from,
-                                        to: _to,
-                                        halfDay: _halfDay,
-                                        includeWeekends: _includeWeekends,
-                                        reason: _reason.text,
-                                      );
-
-                                      if (mounted) {
-                                        Navigator.of(context).pop(); // close loader
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Leave request submitted'),
-                                            behavior: SnackBarBehavior.floating,
-                                          ),
-                                        );
-                                        // Exit form and refresh balances/policies
-                                        _exitApply();
-                                        await _reload();
-                                      }
-                                    } catch (e) {
-                                      if (mounted) {
-                                        Navigator.of(context).pop(); // close loader
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text('Failed to submit: $e'),
-                                            behavior: SnackBarBehavior.floating,
-                                          ),
-                                        );
-                                      }
-                                    }
-                                  }),
-                                ),
-                              ],
-                            ),
-
-                          ],
+                          ),
                         ),
                       ),
                     ),
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: SizedBox(height: 12 + bottomInset),
+                    ),
+                  ],
+                ),
+
+                // ⬇️ In-page loading mask shown only while submitting
+                if (_submitting)
+                  Positioned.fill(
+                    child: AbsorbPointer(
+                      absorbing: true,
+                      child: Container(
+                        color: Colors.black38,
+                        child: const Center(child: CircularProgressIndicator()),
+                      ),
+                    ),
                   ),
-                ),
-                SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: SizedBox(height: 12 + bottomInset),
-                ),
               ],
             ),
           );

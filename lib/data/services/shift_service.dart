@@ -16,6 +16,24 @@ class ShiftService {
     return id;
   }
 
+  Future<List<EmployeeShiftRoster>> getRosterForRange({
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final empId = _requireEmployeeId();
+    final ymd = DateFormat('yyyy-MM-dd');
+    final startYmd = ymd.format(start);
+    final endYmd = ymd.format(end);
+
+    final path = Routes.employeeShiftRoster(empId, startYmd, endYmd);
+    final list = await ApiClient.instance.getList(path);
+
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map((e) => EmployeeShiftRoster.fromJson(e))
+        .toList();
+  }
+
   Future<EmployeeShiftRoster?> getShiftForDate(DateTime day) async {
     final empId = _requireEmployeeId();
     final ymd = DateFormat('yyyy-MM-dd').format(day);
