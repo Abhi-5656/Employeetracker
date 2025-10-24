@@ -422,6 +422,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart'; // <--- ADDED THIS IMPORT
 
 import '../../app/config/environment.dart';
 import 'auth_service.dart';
@@ -493,6 +494,20 @@ class ApiClient {
     // Result: http://HOST/<tenantId>/api/...
     return Uri.parse('$_baseHost$p');
   }
+// 👇 NEW: Helper method for AuthApi to build the tenant-specific URI, bypassing the auto-refresh logic
+  Uri getAuthUri(String path) {
+    // We assume AuthApi handles tenant ID for its specific endpoints
+    final tenant = TenantService.instance.tenantId;
+    String p = path.startsWith('/') ? path : '/$path';
+
+    // Inject /<tenantId> if available and enabled
+    if (_tenantInPath && tenant != null && tenant.isNotEmpty) {
+      p = '/$tenant$p';
+    }
+
+    // Result: http://HOST/[tenantId]/api/auth/refresh (or /login)
+    return Uri.parse('$_baseHost$p');
+  }
 
   Map<String, String> _headers({Map<String, String>? extra}) {
     final h = <String, String>{
@@ -517,19 +532,79 @@ class ApiClient {
   }
 
 
-  Future<Map<String, dynamic>> getJson(String path) async {
-    if (!_isAuthFreePath(path)) {
-      await AuthService.instance.ensureValidAccessToken();
-    }
+  // ... (ApiClient definition and helper methods _baseHost, _isAuthFreePath, _uri, _headers)
 
-    var res = await http.get(_uri(path), headers: _headers());
-    if (res.statusCode == 401 && !_isAuthFreePath(path)) {
-      final ok = await AuthService.instance.ensureValidAccessToken(forceRefresh: true);
-      if (ok) {
-        res = await http.get(_uri(path), headers: _headers());
+// --- NEW CENTRALIZED WRAPPER FOR AUTO-REFRESH AND RETRY LOGIC ---
+  Future<http.Response> _sendRequestWithAutoRefresh(
+      String method,
+      String path, {
+        Map<String, String>? headers,
+        Object? body,
+      }) async {
+    final isAuthFree = _isAuthFreePath(path);
+    final uri = _uri(path);
+
+    // Inner function to execute the actual HTTP call. Headers are fetched
+    // inside this function so they always pick up the latest access token.
+    Future<http.Response> executeRequest() async {
+      final allHeaders = _headers(extra: headers);
+      try {
+        switch (method) {
+          case 'GET':
+            return await http.get(uri, headers: allHeaders);
+          case 'POST':
+            return await http.post(uri, headers: allHeaders, body: body);
+          case 'PUT':
+            return await http.put(uri, headers: allHeaders, body: body);
+          case 'DELETE':
+            return await http.delete(uri, headers: allHeaders, body: body);
+          default:
+            throw UnsupportedError('HTTP method $method not supported');
+        }
+      } catch (e) {
+        // Re-throw network/timeout errors
+        rethrow;
       }
     }
 
+    // 1. Ensure a valid token exists (AuthService will refresh if locally expired)
+    if (!isAuthFree) {
+      await AuthService.instance.ensureValidAccessToken();
+    }
+
+    // 2. First attempt
+    http.Response res = await executeRequest();
+
+    // 3. Handle 401 (token expired/invalid at server)
+    if (res.statusCode == 401 && !isAuthFree) {
+      debugPrint("Received 401 for $path. Attempting forced token refresh...");
+
+      // Force refresh the token
+      final ok = await AuthService.instance.ensureValidAccessToken(forceRefresh: true);
+
+      if (ok) {
+        debugPrint("Token refreshed successfully. Retrying request...");
+        // 4. Retry request with the newly acquired token
+        res = await executeRequest();
+      } else {
+        // Refresh failed (e.g., refresh token itself expired or was revoked)
+        debugPrint("Token refresh failed. Session is invalid. Forcing sign-out.");
+        await AuthService.instance.signOut();
+        // Throw a specific error to propagate the sign-out to the UI/service layer.
+        throw Exception('Authentication required. Session expired or revoked.');
+      }
+    }
+
+    return res;
+  }
+// --- END NEW CENTRALIZED WRAPPER ---
+// --- REFACTORED Public Methods to use the wrapper ---
+
+  Future<Map<String, dynamic>> getJson(String path) async {
+    // REPLACED ALL TOKEN LOGIC WITH THE NEW WRAPPER CALL
+    final res = await _sendRequestWithAutoRefresh('GET', path);
+
+    // Check for final success code (wrapper handles the 401 retry)
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw _httpError('GET', path, res);
     }
@@ -538,18 +613,10 @@ class ApiClient {
   }
 
   Future<List<dynamic>> getList(String path) async {
-    if (!_isAuthFreePath(path)) {
-      await AuthService.instance.ensureValidAccessToken();
-    }
+    // REPLACED ALL TOKEN LOGIC WITH THE NEW WRAPPER CALL
+    final res = await _sendRequestWithAutoRefresh('GET', path);
 
-    var res = await http.get(_uri(path), headers: _headers());
-    if (res.statusCode == 401 && !_isAuthFreePath(path)) {
-      final ok = await AuthService.instance.ensureValidAccessToken(forceRefresh: true);
-      if (ok) {
-        res = await http.get(_uri(path), headers: _headers());
-      }
-    }
-
+    // Check for final success code
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw _httpError('GET', path, res);
     }
@@ -562,27 +629,15 @@ class ApiClient {
         Map<String, dynamic>? body,
         Map<String, String>? headers,
       }) async {
-    if (!_isAuthFreePath(path)) {
-      await AuthService.instance.ensureValidAccessToken();
-    }
-
-    var res = await http.post(
-      _uri(path),
-      headers: _headers(extra: headers),
+    // REPLACED ALL TOKEN LOGIC WITH THE NEW WRAPPER CALL
+    final res = await _sendRequestWithAutoRefresh(
+      'POST',
+      path,
+      headers: headers,
       body: body == null ? null : jsonEncode(body),
     );
 
-    if (res.statusCode == 401 && !_isAuthFreePath(path)) {
-      final ok = await AuthService.instance.ensureValidAccessToken(forceRefresh: true);
-      if (ok) {
-        res = await http.post(
-          _uri(path),
-          headers: _headers(extra: headers),
-          body: body == null ? null : jsonEncode(body),
-        );
-      }
-    }
-
+    // Check for final success code
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw _httpError('POST', path, res);
     }
@@ -591,6 +646,82 @@ class ApiClient {
     if (text.isEmpty) return <String, dynamic>{};
     return jsonDecode(text) as Map<String, dynamic>;
   }
+
+  // ... (rest of the file remains the same)
+  // Future<Map<String, dynamic>> getJson(String path) async {
+  //   if (!_isAuthFreePath(path)) {
+  //     await AuthService.instance.ensureValidAccessToken();
+  //   }
+  //
+  //   var res = await http.get(_uri(path), headers: _headers());
+  //   if (res.statusCode == 401 && !_isAuthFreePath(path)) {
+  //     final ok = await AuthService.instance.ensureValidAccessToken(forceRefresh: true);
+  //     if (ok) {
+  //       res = await http.get(_uri(path), headers: _headers());
+  //     }
+  //   }
+  //
+  //   if (res.statusCode < 200 || res.statusCode >= 300) {
+  //     throw _httpError('GET', path, res);
+  //   }
+  //   final body = res.body.isEmpty ? '{}' : res.body;
+  //   return jsonDecode(body) as Map<String, dynamic>;
+  // }
+  //
+  // Future<List<dynamic>> getList(String path) async {
+  //   if (!_isAuthFreePath(path)) {
+  //     await AuthService.instance.ensureValidAccessToken();
+  //   }
+  //
+  //   var res = await http.get(_uri(path), headers: _headers());
+  //   if (res.statusCode == 401 && !_isAuthFreePath(path)) {
+  //     final ok = await AuthService.instance.ensureValidAccessToken(forceRefresh: true);
+  //     if (ok) {
+  //       res = await http.get(_uri(path), headers: _headers());
+  //     }
+  //   }
+  //
+  //   if (res.statusCode < 200 || res.statusCode >= 300) {
+  //     throw _httpError('GET', path, res);
+  //   }
+  //   final body = res.body.isEmpty ? '[]' : res.body;
+  //   return jsonDecode(body) as List<dynamic>;
+  // }
+  //
+  // Future<Map<String, dynamic>> postJson(
+  //     String path, {
+  //       Map<String, dynamic>? body,
+  //       Map<String, String>? headers,
+  //     }) async {
+  //   if (!_isAuthFreePath(path)) {
+  //     await AuthService.instance.ensureValidAccessToken();
+  //   }
+  //
+  //   var res = await http.post(
+  //     _uri(path),
+  //     headers: _headers(extra: headers),
+  //     body: body == null ? null : jsonEncode(body),
+  //   );
+  //
+  //   if (res.statusCode == 401 && !_isAuthFreePath(path)) {
+  //     final ok = await AuthService.instance.ensureValidAccessToken(forceRefresh: true);
+  //     if (ok) {
+  //       res = await http.post(
+  //         _uri(path),
+  //         headers: _headers(extra: headers),
+  //         body: body == null ? null : jsonEncode(body),
+  //       );
+  //     }
+  //   }
+  //
+  //   if (res.statusCode < 200 || res.statusCode >= 300) {
+  //     throw _httpError('POST', path, res);
+  //   }
+  //
+  //   final text = res.body;
+  //   if (text.isEmpty) return <String, dynamic>{};
+  //   return jsonDecode(text) as Map<String, dynamic>;
+  // }
 
 
   Exception _httpError(String method, String path, http.Response res) {

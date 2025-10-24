@@ -265,7 +265,7 @@
 
 
 import 'package:flutter/material.dart';
-
+import 'package:flutter/services.dart'; // 👈 NEEDED FOR SYSTEM EXIT
 import '../features/home/my_day_screen.dart';
 import '../features/timesheet/timesheet_screen.dart';
 import '../features/schedule/schedule_screen.dart';
@@ -364,7 +364,16 @@ class _RootShellState extends State<RootShell> {
   int inboxBadge = 4;
   int bellBadge = 3;
 
-  final PageController _pageController = PageController();
+  // Navigator per tab (order must match tabs)
+  final List<GlobalKey<NavigatorState>> _navigatorKeys = [
+    GlobalKey<NavigatorState>(), // 0: My Day
+    GlobalKey<NavigatorState>(), // 1: Timesheet
+    GlobalKey<NavigatorState>(), // 2: Schedule
+    GlobalKey<NavigatorState>(), // 3: Leave
+    GlobalKey<NavigatorState>(), // 4: Inbox
+  ];
+
+  DateTime? _lastExitTime;
 
   void _toast(String msg) {
     ScaffoldMessenger.of(context)
@@ -377,6 +386,7 @@ class _RootShellState extends State<RootShell> {
   }
 
   void _gotoReplacement() {
+    // Pushed on the root app navigator (as before)
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => ReplacementScreen(onSubmit: () {
         _toast('📤 Replacement request sent to manager');
@@ -392,11 +402,80 @@ class _RootShellState extends State<RootShell> {
     ));
   }
 
-  void _pageTo(int index) {
-    setState(() => _index = index);
-    _pageController.jumpToPage(index);
+  // build a tab with its own Navigator so inner routes pop first
+  Widget _buildTabNavigator(int tabIndex, Widget root) {
+    return Navigator(
+      key: _navigatorKeys[tabIndex],
+      onGenerateRoute: (settings) {
+        return MaterialPageRoute(builder: (_) => root, settings: settings);
+      },
+    );
   }
 
+  Future<void> _handleBack() async {
+    final nav = _navigatorKeys[_index].currentState;
+
+    // 1) If current tab can pop an inner route (e.g., Leave -> Apply form), do that.
+    if (nav != null && await nav.maybePop()) {
+      return;
+    }
+
+    // 2) If not on My Day, go to My Day.
+    if (_index != 0) {
+      setState(() => _index = 0);
+      return;
+    }
+
+    // 3) Already on My Day root: double-back to exit.
+    final now = DateTime.now();
+    if (_lastExitTime == null ||
+        now.difference(_lastExitTime!) > const Duration(seconds: 2)) {
+      _lastExitTime = now;
+      _toast('Press back again to exit the app.');
+      return;
+    }
+
+    // 🎯 CRITICAL FIX: Explicitly exit the app process
+    SystemNavigator.pop();
+  }
+// 👇 NEW: Logout Confirmation and Action
+  Future<void> _confirmAndLogout() async {
+    // 1. Show Confirmation Dialog
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirm Logout'),
+          content: const Text('Are you sure you want to sign out of the application?'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              // Use primary button for confirmation action
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Logout'),
+            ),
+          ],
+        );
+      },
+    );
+
+    // 2. Perform Logout if confirmed
+    if (shouldLogout == true) {
+      await AuthService.instance.signOut(); // Clears local tokens and state
+
+      // Navigate back to the initial LoginScreen
+      if (!mounted) return;
+      // We use the global appNavigator to pop all authenticated routes
+      // and push the login page.
+      appNavigator.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+            (route) => false, // Remove all previous routes from the stack
+      );
+    }
+  }
   @override
   Widget build(BuildContext context) {
     final navItems = <_NavItem>[
@@ -416,74 +495,306 @@ class _RootShellState extends State<RootShell> {
         ),
       ),
       child: SafeArea(
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          floatingActionButton: FloatingActionButton(
-            tooltip: 'Show All',
-            onPressed: () => _toast('👁️ All sections accessible via tabs & routes'),
-            child: const Text('👁️', style: TextStyle(fontSize: 20)),
-          ),
-          bottomNavigationBar: Container(
-            decoration: const BoxDecoration(
+        child: PopScope(
+          canPop: false, // we’ll decide what happens on back
+          onPopInvoked: (didPop) {
+            if (didPop) return;
+            _handleBack();
+          },
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            floatingActionButton: FloatingActionButton(
+              tooltip: 'Show All',
+              onPressed: () => _toast('👁️ All sections accessible via tabs & routes'),
+              child: const Text('👁️', style: TextStyle(fontSize: 20)),
+            ),
+            bottomNavigationBar: Container(
+              decoration: const BoxDecoration(
                 color: Colors.white,
-                border: Border(top: BorderSide(color: Color(0xFFE9ECEF)))),
-            child: NavigationBar(
-              selectedIndex: _index,
-              height: 72,
-              onDestinationSelected: (i) {
-                setState(() => _index = i);
-                _pageController.jumpToPage(i);
-              },
-              destinations: [
-                for (final item in navItems)
-                  NavigationDestination(
-                    icon: BadgeIcon(icon: item.icon, badge: item.badge),
-                    label: item.label,
+                border: Border(top: BorderSide(color: Color(0xFFE9ECEF))),
+              ),
+              child: NavigationBar(
+                selectedIndex: _index,
+                height: 72,
+                onDestinationSelected: (i) {
+                  setState(() => _index = i);
+                },
+                destinations: [
+                  for (final item in navItems)
+                    NavigationDestination(
+                      icon: BadgeIcon(icon: item.icon, badge: item.badge),
+                      label: item.label,
+                    ),
+                ],
+              ),
+            ),
+
+            // NOTE: use IndexedStack (no swipe, preserves state, no UI change)
+            body: IndexedStack(
+              index: _index,
+              children: [
+                _buildTabNavigator(
+                  0,
+                  MyDayScreen(
+                    bellBadge: bellBadge,
+                    onClockIn: () => _toast('✅ Clocked in successfully at 08:00'),
+                    onCantMake: _gotoReplacement,
+                    onViewTeam: () => _toast('👥 Team screen coming soon'),
+                    // 🎯 NEW: Pass the logout function to the MyDayScreen
+                    onLogout: _confirmAndLogout,
                   ),
+                ),
+                _buildTabNavigator(
+                  1,
+                  TimesheetScreen(
+                    onSaveDraft: () => _toast('💾 Draft saved'),
+                    onSubmitWeek: () =>
+                        _toast('⏰ Timesheet submitted for manager approval'),
+                  ),
+                ),
+                _buildTabNavigator(
+                  2,
+                  ScheduleScreen(
+                    onRequestTimeOff: () => setState(() => _index = 3),
+                    onPickShift: _gotoPickup,
+                    onCantMake: _gotoReplacement,
+                  ),
+                ),
+                _buildTabNavigator(
+                  3,
+                  LeaveScreen(
+                    onSaveDraft: () => _toast('💾 Leave draft saved'),
+                    onSubmit: () =>
+                        _toast('📋 Leave application submitted for approval'),
+                  ),
+                ),
+                _buildTabNavigator(
+                  4,
+                  InboxScreen(
+                    onClockIn: () => _toast('✅ Clocked in'),
+                    onMarkAllRead: () {
+                      setState(() => inboxBadge = 0);
+                      _toast('📬 All messages marked as read');
+                    },
+                    onSettings: () => _toast('⚙️ Settings opened'),
+                    onCantMake: _gotoReplacement,
+                  ),
+                ),
               ],
             ),
-          ),
-          body: PageView(
-            controller: _pageController,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              MyDayScreen(
-                bellBadge: bellBadge,
-                onClockIn: () => _toast('✅ Clocked in successfully at 08:00'),
-                onCantMake: _gotoReplacement,
-                onViewTeam: () => _toast('👥 Team screen coming soon'),
-                // deferFetch: true, // ⬅️ ensures no network on first render
-              ),
-              TimesheetScreen(
-                onSaveDraft: () => _toast('💾 Draft saved'),
-                onSubmitWeek: () => _toast('⏰ Timesheet submitted for manager approval'),
-              ),
-              ScheduleScreen(
-                onRequestTimeOff: () => _pageTo(3),
-                onPickShift: _gotoPickup,
-                onCantMake: _gotoReplacement,
-              ),
-              LeaveScreen(
-                onSaveDraft: () => _toast('💾 Leave draft saved'),
-                onSubmit: () => _toast('📋 Leave application submitted for approval'),
-              ),
-              InboxScreen(
-                onClockIn: () => _toast('✅ Clocked in'),
-                onMarkAllRead: () {
-                  setState(() => inboxBadge = 0);
-                  _toast('📬 All messages marked as read');
-                },
-                onSettings: () => _toast('⚙️ Settings opened'),
-                onCantMake: _gotoReplacement,
-              ),
-            ],
           ),
         ),
       ),
     );
   }
+
 }
 
+
+// class RootShell extends StatefulWidget {
+//   const RootShell({super.key});
+//   @override
+//   State<RootShell> createState() => _RootShellState();
+// }
+//
+// class _RootShellState extends State<RootShell> {
+//   int _index = 0;
+//   int inboxBadge = 4;
+//   int bellBadge = 3;
+//
+//   final PageController _pageController = PageController();
+//
+//
+//   // 👇 NEW: Keys for each Nested Navigator (Must match tab order)
+//   final List<GlobalKey<NavigatorState>> _navigatorKeys = [
+//     GlobalKey<NavigatorState>(), // 0: My Day
+//     GlobalKey<NavigatorState>(), // 1: Timesheet
+//     GlobalKey<NavigatorState>(), // 2: Schedule
+//     GlobalKey<NavigatorState>(), // 3: Leave
+//     GlobalKey<NavigatorState>(), // 4: Inbox
+//   ];
+//
+//   DateTime? _lastExitTime; // Keep this for the reliable double-back exit
+//
+//
+//   void _toast(String msg) {
+//     ScaffoldMessenger.of(context)
+//       ..hideCurrentSnackBar()
+//       ..showSnackBar(SnackBar(
+//         behavior: SnackBarBehavior.floating,
+//         content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w600)),
+//         duration: const Duration(seconds: 2),
+//       ));
+//   }
+//
+//   void _gotoReplacement() {
+//     Navigator.of(context).push(MaterialPageRoute(
+//       builder: (_) => ReplacementScreen(onSubmit: () {
+//         _toast('📤 Replacement request sent to manager');
+//       }),
+//     ));
+//   }
+//
+//   void _gotoPickup() {
+//     Navigator.of(context).push(MaterialPageRoute(
+//       builder: (_) => PickupScreen(
+//         onPick: () => _toast('🎯 Shift pickup request submitted'),
+//       ),
+//     ));
+//   }
+//
+//   void _pageTo(int index) {
+//     setState(() => _index = index);
+//     _pageController.jumpToPage(index);
+//   }
+//
+//   // NEW: central back handler
+//   Future<bool> _onWillPop() async {
+//     final currentNavigator = _navigatorKeys[_index].currentState;
+//
+//     // 1) If current tab has an inner page, pop it first
+//     if (currentNavigator != null && currentNavigator.canPop()) {
+//       currentNavigator.pop();
+//       return false;
+//     }
+//
+//     // 2) If not on My Day (index 0), go to My Day
+//     if (_index != 0) {
+//       setState(() => _index = 0);
+//       _pageController.jumpToPage(0);
+//       return false;
+//     }
+//
+//     // 3) Already on My Day root → double back to exit
+//     final now = DateTime.now();
+//     if (_lastExitTime == null ||
+//         now.difference(_lastExitTime!) > const Duration(seconds: 2)) {
+//       _lastExitTime = now;
+//       _toast('Press back again to exit the app.');
+//       return false;
+//     }
+//
+//     return true; // exit app
+//   }
+//
+//   // NEW: wrap each tab content with its own Navigator
+//   Widget _buildTabNavigator(int index, Widget child) {
+//     return Navigator(
+//       key: _navigatorKeys[index],
+//       onGenerateRoute: (settings) {
+//         return MaterialPageRoute(builder: (_) => child, settings: settings);
+//       },
+//     );
+//   }
+//
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     final navItems = <_NavItem>[
+//       _NavItem('My Day', Icons.home_rounded),
+//       _NavItem('Timesheet', Icons.bar_chart_rounded),
+//       _NavItem('Schedule', Icons.calendar_month_rounded),
+//       _NavItem('Leave', Icons.beach_access_rounded),
+//       _NavItem('Inbox', Icons.inbox_rounded, badge: inboxBadge),
+//     ];
+//
+//     return WillPopScope(
+//       onWillPop: _onWillPop,
+//       child: Container(
+//         decoration: const BoxDecoration(
+//           gradient: LinearGradient(
+//             colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+//             begin: Alignment.topLeft,
+//             end: Alignment.bottomRight,
+//           ),
+//         ),
+//         child: SafeArea(
+//           child: Scaffold(
+//             backgroundColor: Colors.transparent,
+//             floatingActionButton: FloatingActionButton(
+//               tooltip: 'Show All',
+//               onPressed: () => _toast('👁️ All sections accessible via tabs & routes'),
+//               child: const Text('👁️', style: TextStyle(fontSize: 20)),
+//             ),
+//             bottomNavigationBar: Container(
+//               decoration: const BoxDecoration(
+//                 color: Colors.white,
+//                 border: Border(top: BorderSide(color: Color(0xFFE9ECEF))),
+//               ),
+//               child: NavigationBar(
+//                 selectedIndex: _index,
+//                 height: 72,
+//                 onDestinationSelected: (i) {
+//                   setState(() => _index = i);
+//                   _pageController.jumpToPage(i);
+//                 },
+//                 destinations: [
+//                   for (final item in navItems)
+//                     NavigationDestination(
+//                       icon: BadgeIcon(icon: item.icon, badge: item.badge),
+//                       label: item.label,
+//                     ),
+//                 ],
+//               ),
+//             ),
+//             body: PageView(
+//               controller: _pageController,
+//               physics: const NeverScrollableScrollPhysics(),
+//               children: [
+//                 _buildTabNavigator(
+//                   0,
+//                   MyDayScreen(
+//                     bellBadge: bellBadge,
+//                     onClockIn: () => _toast('✅ Clocked in successfully at 08:00'),
+//                     onCantMake: _gotoReplacement,
+//                     onViewTeam: () => _toast('👥 Team screen coming soon'),
+//                   ),
+//                 ),
+//                 _buildTabNavigator(
+//                   1,
+//                   TimesheetScreen(
+//                     onSaveDraft: () => _toast('💾 Draft saved'),
+//                     onSubmitWeek: () =>
+//                         _toast('⏰ Timesheet submitted for manager approval'),
+//                   ),
+//                 ),
+//                 _buildTabNavigator(
+//                   2,
+//                   ScheduleScreen(
+//                     onRequestTimeOff: () => _pageTo(3),
+//                     onPickShift: _gotoPickup,
+//                     onCantMake: _gotoReplacement,
+//                   ),
+//                 ),
+//                 _buildTabNavigator(
+//                   3,
+//                   LeaveScreen(
+//                     onSaveDraft: () => _toast('💾 Leave draft saved'),
+//                     onSubmit: () =>
+//                         _toast('📋 Leave application submitted for approval'),
+//                   ),
+//                 ),
+//                 _buildTabNavigator(
+//                   4,
+//                   InboxScreen(
+//                     onClockIn: () => _toast('✅ Clocked in'),
+//                     onMarkAllRead: () {
+//                       setState(() => inboxBadge = 0);
+//                       _toast('📬 All messages marked as read');
+//                     },
+//                     onSettings: () => _toast('⚙️ Settings opened'),
+//                     onCantMake: _gotoReplacement,
+//                   ),
+//                 ),
+//               ],
+//             ),
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+// }
+//
 class _NavItem {
   final String label;
   final IconData icon;

@@ -15,6 +15,9 @@ class Routes {
   static String employeeShiftRoster(String employeeId, String startYmd, String endYmd)
   => '/api/employee/shifts/employee-shift-roster/$employeeId?startDate=$startYmd&endDate=$endYmd';
 
+
+  // 🎯 NEW ROUTE: Attendance Timesheet Data
+  static String attendanceTimesheetData(String employeeId) => '/api/dashboard/attendance-timesheet/$employeeId';
   // ADD THIS:
   static String leaveAndHolidays(String employeeId)
   => '/api/dashboard/leave-and-holidays/$employeeId';

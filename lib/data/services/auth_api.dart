@@ -82,7 +82,7 @@ import 'employee_service.dart';
 import './http_client.dart';
 import 'auth_service.dart';
 import 'dart:developer'; // Added for proper logging
-
+import 'package:http/http.dart' as http; // ❗️ MUST import 'http'
 
 // Lightweight response for token endpoints
 class AuthResponse {
@@ -200,13 +200,30 @@ class AuthApi {
   /// POST /{tenant}/api/auth/refresh  { "refreshToken": "<token>" }
   /// Returns new access token (and optionally a new refresh token + expiry).
   Future<AuthResponse?> refresh({required String refreshToken}) async {
-    final json = await ApiClient.instance.postJson(
-      Routes.refresh,
-      body: {'refreshToken': refreshToken},
-    );
-    final res = AuthResponse.fromJson(json);
-    if (res.accessToken.isEmpty) return null;
-    return res;
+    // ❗️ CRITICAL CHANGE: Use direct http.post bypassing ApiClient's auto-refresh
+    final urlPath = Routes.refresh;
+    final uri = ApiClient.instance.getAuthUri(urlPath); // Use the new helper method
+
+    try {
+      final res = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: jsonEncode({'refreshToken': refreshToken}),
+      ).timeout(const Duration(seconds: 15));
+
+      if (res.statusCode == 200) {
+        final json = jsonDecode(res.body) as Map<String, dynamic>;
+        return AuthResponse.fromJson(json);
+      }
+
+      // If status is not 200 (e.g., 401 token expired), return null for AuthService to clean up.
+      log('Refresh API failed with status: ${res.statusCode}. Body: ${res.body}', name: 'AuthApi');
+      return null;
+
+    } catch (e) {
+      log('Refresh API threw exception: $e', name: 'AuthApi');
+      return null;
+    }
   }
 
 }

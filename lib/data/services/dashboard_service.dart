@@ -80,8 +80,9 @@ import './http_client.dart';
 import './auth_service.dart';
 import './routes.dart';
 // ADD:
+import '../models/attendance_timesheet_model.dart';
 import '../models/leave_and_holidays_model.dart';
-import '../models/my_summary_model.dart'; // if not already imported
+// if not already imported
 
 class DashboardService {
   DashboardService._();
@@ -106,5 +107,11 @@ class DashboardService {
     final employeeId = _requireEmployeeId();
     final json = await ApiClient.instance.getJson(Routes.leaveAndHolidays(employeeId));
     return LeaveAndHolidays.fromJson(json);
+  }
+  // 🎯 NEW SERVICE METHOD for Timesheet Total Hours and Exceptions
+  Future<AttendanceTimesheetData> getAttendanceTimesheetData() async {
+    final employeeId = _requireEmployeeId();
+    final json = await ApiClient.instance.getJson(Routes.attendanceTimesheetData(employeeId));
+    return AttendanceTimesheetData.fromJson(json);
   }
 }

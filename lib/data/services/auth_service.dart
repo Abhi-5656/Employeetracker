@@ -321,22 +321,22 @@ class AuthService {
     }
   }
 
-  /// Public: used by ApiClient before/after requests.
-  Future<bool> ensureValidAccessToken({bool forceRefresh = false}) async {
-    if (!forceRefresh && _isAccessTokenValid) return true;
-    return await _refreshAccessToken();
-  }
-
   Future<bool> _refreshAccessToken() async {
     if (_refreshToken == null || _refreshToken!.isEmpty) return false;
 
     try {
       final r = await AuthApi.instance.refresh(refreshToken: _refreshToken!);
-      if (r == null || r.accessToken.isEmpty) return false;
+
+      // 🚨 CRITICAL FIX 1: If AuthApi returns null/empty token (refresh failed/expired token)
+      if (r == null || r.accessToken.isEmpty) {
+        debugPrint('Refresh failed: AuthApi returned null/empty token. Wiping session.');
+        await signOut(); // 👈 Guaranteed cleanup on soft failure
+        return false;
+      }
 
       _accessToken = r.accessToken;
 
-      // Prefer expiresIn; else decode JWT again
+      // Prefer expiresIn; else decode JWT again (remaining logic unchanged)
       if (r.expiresIn != null && r.expiresIn! > 0) {
         final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         _accessExpiryEpoch = nowSec + r.expiresIn!;
@@ -351,7 +351,7 @@ class AuthService {
         _refreshToken = r.refreshToken;
       }
 
-      // Sync legacy
+      // Sync legacy and persist
       final s = SessionController.instance;
       s.token        = _accessToken;
       s.refreshToken = _refreshToken;
@@ -360,7 +360,44 @@ class AuthService {
       await _persist();
       return true;
     } catch (e) {
-      debugPrint('Refresh failed: $e');
+      // 🚨 CRITICAL FIX 2: If a network or decoding error occurs, wipe the session.
+      debugPrint('Refresh failed due to exception: $e. Wiping session.');
+      await signOut(); // 👈 Guaranteed cleanup on hard failure
+      return false;
+    }
+  }
+
+  Future<bool> ensureValidAccessToken({bool forceRefresh = false}) async {
+    if (_isAccessTokenValid) return true;
+    if (_refreshToken == null || _refreshToken!.isEmpty) return false;
+
+    try {
+      final r = await AuthApi.instance.refresh(
+        refreshToken: _refreshToken!,
+      );
+
+      // 🚨 CRITICAL FIX 3: If refresh fails during the silent pre-check, wipe the session.
+      if (r == null || r.accessToken.isEmpty) {
+        await signOut();
+        return false;
+      }
+
+      _accessToken = r.accessToken;
+      if (r.refreshToken != null && r.refreshToken!.isNotEmpty) {
+        _refreshToken = r.refreshToken; // ✅ keep it current if backend rotates
+      }
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      _accessExpiryEpoch = (nowSec + (r.expiresIn ?? 3600)) as int?;
+
+      // ✅ Persist updated tokens/expiry
+      await _storage.write(key: _kKeyAccessToken, value: _accessToken);
+      await _storage.write(key: _kKeyRefreshToken, value: _refreshToken);
+      await _storage.write(key: _kKeyExpiryEpoch, value: _accessExpiryEpoch!.toString());
+      return true;
+    } catch (e) {
+      debugPrint('Refresh failed during ensure check: $e');
+      // 🚨 CRITICAL FIX 4: Catch all exceptions and wipe session
+      await signOut();
       return false;
     }
   }

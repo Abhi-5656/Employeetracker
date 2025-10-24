@@ -315,6 +315,8 @@ class MyDayScreen extends StatefulWidget {
   final VoidCallback onClockIn;
   final VoidCallback onCantMake;
   final VoidCallback onViewTeam;
+  // 🎯 NEW PROP: Action for logout
+  final VoidCallback onLogout;
 
   /// When true (default), do NOT hit the network on first render.
   final bool deferFetch;
@@ -325,6 +327,8 @@ class MyDayScreen extends StatefulWidget {
     required this.onClockIn,
     required this.onCantMake,
     required this.onViewTeam,
+    // 👈 ADDED LOGOUT PROP HERE
+    required this.onLogout,
     this.deferFetch = false,
   });
 
@@ -352,6 +356,27 @@ class _MyDayScreenState extends State<MyDayScreen>
     });
   }
 
+// 🎯 NEW: Helper to build the trailing actions row with Logout
+  Row _buildTrailingActions(BuildContext context, VoidCallback refreshCallback) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        BadgeIcon(icon: Icons.notifications_rounded, badge: widget.bellBadge),
+        IconButton(
+          tooltip: 'Reload',
+          onPressed: refreshCallback,
+          icon: const Icon(Icons.refresh),
+        ),
+        // 👈 NEW LOGOUT BUTTON
+        IconButton(
+          tooltip: 'Logout',
+          onPressed: widget.onLogout, // Calls the method passed from RootShell
+          icon: const Icon(Icons.logout_rounded),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context); // <-- ADD THIS (required when using the mixin)
@@ -359,17 +384,7 @@ class _MyDayScreenState extends State<MyDayScreen>
     if (_future == null) {
       return GradientScaffold(
         title: 'WorkForce',
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            BadgeIcon(icon: Icons.notifications_rounded, badge: widget.bellBadge),
-            IconButton(
-              tooltip: 'Load data',
-              onPressed: _triggerFetch,
-              icon: const Icon(Icons.refresh),
-            ),
-          ],
-        ),
+        trailing: _buildTrailingActions(context, _triggerFetch),
         child: ListView(
           padding: const EdgeInsets.only(bottom: 24),
           children: [
@@ -431,35 +446,16 @@ class _MyDayScreenState extends State<MyDayScreen>
         if (snap.connectionState != ConnectionState.done) {
           return GradientScaffold(
             title: 'WorkForce',
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                BadgeIcon(icon: Icons.notifications_rounded, badge: widget.bellBadge),
-                // AFTER:
-                IconButton(
-                  tooltip: 'Reload',
-                  onPressed: _triggerFetch,          // <-- just reload; do NOT set _future to null
-                  icon: const Icon(Icons.refresh),
-                ),
-              ],
-            ),
+            trailing: _buildTrailingActions(context, _triggerFetch),
             child: const Center(child: CircularProgressIndicator()),
           );
         }
+        // --- 2. Error State ---
         if (snap.hasError) {
           return GradientScaffold(
             title: 'WorkForce',
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                BadgeIcon(icon: Icons.notifications_rounded, badge: widget.bellBadge),
-                IconButton(
-                  tooltip: 'Retry',
-                  onPressed: _triggerFetch,
-                  icon: const Icon(Icons.refresh),
-                ),
-              ],
-            ),
+            // 🎯 USE NEW HELPER
+            trailing: _buildTrailingActions(context, _triggerFetch),
             child: Center(child: Text('${snap.error}', textAlign: TextAlign.center)),
           );
         }
@@ -467,17 +463,8 @@ class _MyDayScreenState extends State<MyDayScreen>
         final d = snap.data!;
         return GradientScaffold(
           title: 'WorkForce',
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              BadgeIcon(icon: Icons.notifications_rounded, badge: widget.bellBadge),
-              IconButton(
-                tooltip: 'Reload',
-                onPressed: _triggerFetch,
-                icon: const Icon(Icons.refresh),
-              ),
-            ],
-          ),
+          // 🎯 USE NEW HELPER
+          trailing: _buildTrailingActions(context, _triggerFetch),
           child: ListView(
             padding: const EdgeInsets.only(bottom: 24),
             children: [
