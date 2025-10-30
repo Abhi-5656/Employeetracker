@@ -266,6 +266,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // 👈 NEEDED FOR SYSTEM EXIT
+import '../data/services/notification_service.dart';
 import '../features/home/my_day_screen.dart';
 import '../features/timesheet/timesheet_screen.dart';
 import '../features/schedule/schedule_screen.dart';
@@ -282,8 +283,11 @@ import '../data/services/tenant_service.dart';
 import '../data/services/auth_service.dart';
 import '../features/auth/tenant_setup_screen.dart';
 import '../features/auth/login_screen.dart';
+// ... (Make sure MyDayScreen is imported)
+import '../features/home/my_day_screen.dart';
 
 final GlobalKey<NavigatorState> appNavigator = GlobalKey<NavigatorState>();
+
 
 class WfmApp extends StatefulWidget {
   const WfmApp({super.key});
@@ -358,11 +362,25 @@ class RootShell extends StatefulWidget {
   @override
   State<RootShell> createState() => _RootShellState();
 }
+// ❗️ REMOVED: final GlobalKey<MyDayScreenState> _myDayScreenKey = MyDayScreen.globalKey;
+
 
 class _RootShellState extends State<RootShell> {
   int _index = 0;
-  int inboxBadge = 4;
+  // int inboxBadge = 4;
   int bellBadge = 3;
+
+  // final PageController _pageController = PageController();
+
+  // 🎯 NEW: Function to switch to the Inbox tab (Index 4)
+  void _goToInbox() {
+    _pageTo(4); // Assuming Inbox is at index 4 (0-MyDay, 1-Timesheet, 2-Schedule, 3-Leave, 4-Inbox)
+  }
+
+  void _pageTo(int index) {
+    setState(() => _index = index);
+    // _pageController.jumpToPage(index);
+  }
 
   // Navigator per tab (order must match tabs)
   final List<GlobalKey<NavigatorState>> _navigatorKeys = [
@@ -483,7 +501,7 @@ class _RootShellState extends State<RootShell> {
       _NavItem('Timesheet', Icons.bar_chart_rounded),
       _NavItem('Schedule', Icons.calendar_month_rounded),
       _NavItem('Leave', Icons.beach_access_rounded),
-      _NavItem('Inbox', Icons.inbox_rounded, badge: inboxBadge),
+      _NavItem('Inbox', Icons.inbox_rounded),
     ];
 
     return Container(
@@ -536,12 +554,14 @@ class _RootShellState extends State<RootShell> {
                 _buildTabNavigator(
                   0,
                   MyDayScreen(
-                    bellBadge: bellBadge,
-                    onClockIn: () => _toast('✅ Clocked in successfully at 08:00'),
+                    // bellBadge: bellBadge,
+                    // onClockIn: () => _toast('✅ Clocked in successfully at 08:00'),
                     onCantMake: _gotoReplacement,
                     onViewTeam: () => _toast('👥 Team screen coming soon'),
                     // 🎯 NEW: Pass the logout function to the MyDayScreen
                     onLogout: _confirmAndLogout,
+                    // 🎯 PASS CALLBACK TO SWITCH TAB
+                    onBellClick: _goToInbox,
                   ),
                 ),
                 _buildTabNavigator(
@@ -573,11 +593,15 @@ class _RootShellState extends State<RootShell> {
                   InboxScreen(
                     onClockIn: () => _toast('✅ Clocked in'),
                     onMarkAllRead: () {
-                      setState(() => inboxBadge = 0);
-                      _toast('📬 All messages marked as read');
+                      // setState(() => inboxBadge = 0);
+                      // _toast('📬 All messages marked as read');
+                      // Trigger a service call to mark as read, which updates the notifier.
+                      NotificationService.instance.markAllAsRead();
                     },
                     onSettings: () => _toast('⚙️ Settings opened'),
                     onCantMake: _gotoReplacement,
+                    // 🎯 PASS THE REFRESH LOGIC DOWN
+                    // onMarkAllRead: _onMarkAllReadClicked,
                   ),
                 ),
               ],
