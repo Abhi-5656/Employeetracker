@@ -357,9 +357,16 @@ class MyDayScreenState extends State<MyDayScreen>
   // ⭐ NEW COMPUTED PROPERTY: Determines the button text
   String get _punchButtonText => _isClockedIn ? 'Clock Out' : 'Clock In';
 
+  // ⭐ NEW STATE: Stores the active session ID provided by the server
+  String? _activeSessionId;
+
 // ⭐ NEW: Timer instance for periodic tracking
   Timer? _locationTimer;
 
+// ⭐ NEW STATE: Monotonically increasing sequence number for RabbitMQ/Chunking logic
+  int _sequenceNumber = 0;
+// Used to prevent multiple clicks while one is processing
+  bool _isPunching = false;
   // // 🎯 NEW: State to hold the live unread count
   // int _unreadBadgeCount = 0;
   // Future<void>? _badgeFuture;
@@ -373,8 +380,34 @@ class MyDayScreenState extends State<MyDayScreen>
     loadDataAndBadge();
     _future = MyDayRepository.instance.load();
     // TODO: Initialize _isClockedIn based on actual data from d.status (in FutureBuilder success path)
+    // 🎯 [R3] ADDED: Call warm-start to check for existing sessions
+    _warmStart();
   }
+  // 🎯 [R3] NEW: Method to check for an existing session on app start
+  Future<void> _warmStart() async {
+    try {
+      // This calls GET /api/tracking/live
+      final live = await LocationService.instance.getLive();
+      if (live != null && live['sessionId'] != null && mounted) {
+        final sessionId = live['sessionId'].toString();
+        // Sync sequence number from server
+        final serverSeq = (live['totalPoints'] as int? ?? 0);
 
+        debugPrint('Warm-start: Found active session $sessionId with $serverSeq points.');
+
+        setState(() {
+          _isClockedIn = true;
+          _activeSessionId = sessionId;
+          _sequenceNumber = serverSeq;
+        });
+        // Resume periodic tracking
+        _startLocationTracking(sessionId);
+      }
+    } catch (e) {
+      debugPrint('Warm-start failed: $e');
+      // Do nothing, assume clocked out
+    }
+  }
   void loadDataAndBadge() {
     setState(() {
       // Load main data
@@ -458,24 +491,58 @@ class MyDayScreenState extends State<MyDayScreen>
   }
 
   // ⭐ NEW: Method to start the periodic tracking
-  void _startLocationTracking() {
+  void _startLocationTracking(String sessionId) {
     // Ensure any existing timer is cancelled before starting a new one
     _locationTimer?.cancel();
 
-    debugPrint('Starting periodic location tracking (Interval: ${LOCATION_TRACKING_INTERVAL.inSeconds}s)');
+    debugPrint('Starting periodic location tracking (Interval: ${LOCATION_TRACKING_INTERVAL.inSeconds}s) for session $sessionId');
 
     // Use Timer.periodic to repeatedly call the tracking logic
-    _locationTimer = Timer.periodic(LOCATION_TRACKING_INTERVAL, (timer) async {
-      // NOTE: We pass 'IN' because the location tracking only happens while clocked IN.
-      // The server will use this data for background tracking updates.
-      final status = await LocationService.instance.checkAndTrackLocation('IN');
+    // _locationTimer = Timer.periodic(LOCATION_TRACKING_INTERVAL, (timer) async {
+    //   // NOTE: We pass 'IN' because the location tracking only happens while clocked IN.
+    //   // The server will use this data for background tracking updates.
+    //   final status = await LocationService.instance.checkAndTrackLocation('IN', sessionId: sessionId);
+    //
+    //   if (status != LocationCheckStatus.success) {
+    //     debugPrint('Periodic tracking failed to send data. Retrying on next interval.');
+    //   }
+    //   // Stop the timer if location services or permissions are lost while tracking
+    //   if (status == LocationCheckStatus.permissionDenied ||
+    //       status == LocationCheckStatus.serviceDisabled) {
+    //     _stopLocationTracking();
+    //     _showLocationAlert('Tracking Interrupted', 'Background tracking stopped due to loss of location service or permissions.');
+    //   }
+    // });
 
-      if (status == LocationCheckStatus.apiFailure) {
-        debugPrint('Periodic tracking failed to send data. Retrying on next interval.');
+    _locationTimer = Timer.periodic(LOCATION_TRACKING_INTERVAL, (timer) async {
+      try {
+        final position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.low,
+          timeLimit: const Duration(seconds: 15),
+        );
+
+        // ⭐ CRITICAL: Increment sequence number for the periodic point
+        _sequenceNumber++;
+// 🎯 [R2] Null-timestamp guard
+        final ts = (position.timestamp ?? DateTime.now()).toUtc().toIso8601String();
+        // ⭐ NEW API CALL: Send Tracking Point
+        await LocationService.instance.sendTrackingPoint(
+          sessionId,
+          position.latitude,
+          position.longitude,
+          position.timestamp.toUtc().toIso8601String(),
+          _sequenceNumber, // Pass the sequence number
+        );
+      } catch (e) {
+        debugPrint('Periodic tracking error: $e');
+        // Stop the timer if location services or permissions are lost while tracking
+        if (e.toString().contains('permission_denied') || e.toString().contains('location_services_disabled')) {
+          _stopLocationTracking();
+          _showLocationAlert('Tracking Interrupted', 'Background tracking stopped due to loss of location service or permissions.');
+        }
       }
-      // Permissions should already be granted; if not, the original punch-in
-      // logic handles the alert, and the stream will silently fail in the background.
     });
+
   }
 
   // ⭐ NEW: Method to stop the periodic tracking
@@ -483,75 +550,181 @@ class MyDayScreenState extends State<MyDayScreen>
     debugPrint('Stopping periodic location tracking.');
     _locationTimer?.cancel();
     _locationTimer = null;
+    _activeSessionId = null; // Clear session ID on clock out
+    _sequenceNumber = 0; // Reset sequence
   }
   // --- NEW CLOCK-IN HANDLER WITH LOCATION LOGIC ---
+//   void _handleClockIn() async {
+//     // 1. Determine the punch type to SEND based on the current state
+//     // If we are currently IN, the next action is OUT. Otherwise, it is IN.
+//     final String punchType = _isClockedIn ? 'OUT' : 'IN';
+//     final String statusLabel = _isClockedIn ? 'Clock Out' : 'Clock In';
+//     debugPrint('Attempting $statusLabel ($punchType)...');
+//
+// // Variables needed for sequence/session update
+//     String? newSessionId;
+//
+//     // Pass existing session ID for Clock Out, or null for Clock In
+//     final String? currentSessionId = _activeSessionId;
+//
+//     // 2. Call the location service, passing the determined punchType
+//     // ⭐ FIX: Pass the punchType argument. Service requires this now.
+//     // Call the service with punchType and currentSessionId
+//     final status = await LocationService.instance.checkAndTrackLocation(
+//         punchType,
+//         sessionId: currentSessionId
+//     );
+//
+//     // 3. Handle results and show appropriate alerts
+//     switch (status) {
+//       case LocationCheckStatus.success:
+//       // Location successfully captured and sent.
+//       // Now, TOGGLE the local state for UI update
+//         setState(() {
+//           _isClockedIn = !_isClockedIn;
+//         });
+//         // ⭐ NEW LOGIC: START/STOP TIMER
+//         if (_isClockedIn) {
+//           // Just clocked IN. We need a sessionId to start tracking.
+//
+//           // NOTE: You MUST replace this placeholder with the actual session ID
+//           // returned by your backend API response body (e.g., in the success handler
+//           // of the API client or a new punch-in API).
+//           // Assuming the backend returns the SessionId only on Clock-In (IN).
+//           final newSessionId = 'SESS-${DateTime.now().millisecondsSinceEpoch}';
+//
+//           _activeSessionId = newSessionId;
+//           _startLocationTracking(newSessionId);
+//         } else {
+//           _stopLocationTracking();  // Just clocked OUT, so stop tracking
+//         }
+// // ⭐ FIX: Determine success message based on the NEW state (post-toggle)
+//         final String newStateLabel = _isClockedIn ? 'Clocked In' : 'Clocked Out';
+//
+//         // ⭐ FIX: Use dynamic label in the success message
+//         _showLocationAlert(
+//           'Punch Success',
+//           'Your location has been successfully tracked and you are now **$newStateLabel**.',
+//         );
+//         // TODO: ADD YOUR MAIN ATTENDANCE/PUNCH API CALL HERE
+//         break;
+//
+//       case LocationCheckStatus.serviceDisabled:
+//         _showLocationAlert(
+//           'Location Required',
+//           'Please **enable your device\'s location service** to proceed with $statusLabel.', // Use dynamic label
+//           canOpenSettings: true,
+//         );
+//         break;
+//
+//       case LocationCheckStatus.permissionDenied:
+//       case LocationCheckStatus.permissionDeniedForever:
+//       // Automatically open app settings if permission is denied
+//         _showLocationAlert(
+//           'Permission Required',
+//           'Location permission is mandatory. Please grant it in app settings.',
+//           canOpenSettings: true,
+//         );
+//         // Note: Geolocator.requestPermission() already prompts the user.
+//         // openAppSettings() is primarily for "deniedForever" states.
+//         Geolocator.openAppSettings();
+//         break;
+//
+//       case LocationCheckStatus.apiFailure:
+//         _showLocationAlert(
+//           'Error',
+//           'Failed to complete $statusLabel. Unable to send location data to the server (400, 403, or network error).',
+//         );
+//         break;
+//     }
+//     // 3. Dismiss loading/processing state if necessary
+//   }
+// ⭐ CRITICALLY UPDATED _handleClockIn METHOD (Using 3 dedicated APIs)
+
   void _handleClockIn() async {
-    // 1. Determine the punch type to SEND based on the current state
-    // If we are currently IN, the next action is OUT. Otherwise, it is IN.
-    final String punchType = _isClockedIn ? 'OUT' : 'IN';
-    final String statusLabel = _isClockedIn ? 'Clock Out' : 'Clock In';
-    debugPrint('Attempting $statusLabel ($punchType)...');
+    if (_isPunching) return; // Prevent double-taps
 
-    // 2. Call the location service, passing the determined punchType
-    // ⭐ FIX: Pass the punchType argument. Service requires this now.
-    final status = await LocationService.instance.checkAndTrackLocation(punchType);
+    setState(() { _isPunching = true; });
 
-    // 3. Handle results and show appropriate alerts
-    switch (status) {
-      case LocationCheckStatus.success:
-      // Location successfully captured and sent.
-      // Now, TOGGLE the local state for UI update
-        setState(() {
-          _isClockedIn = !_isClockedIn;
-        });
-        // ⭐ NEW LOGIC: START/STOP TIMER
-        if (_isClockedIn) {
-          _startLocationTracking(); // Just clocked IN, so start tracking
+    final isClockingIn = !_isClockedIn;
+    final statusLabel = isClockingIn ? 'Clock In' : 'Clock Out';
+    final String? currentSessionId = _activeSessionId;
+
+    // 1. Get location for the punch (required for IN and OUT)
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
+      );
+      // 🎯 [R2] Null-timestamp guard
+      final capturedAt = (position.timestamp ?? DateTime.now()).toUtc().toIso8601String();
+
+      // Increment sequence number for the main action
+      _sequenceNumber++;
+      String? newSessionId;
+      if (isClockingIn) {
+        // 2a. CLOCK IN: Call startSession API
+        newSessionId = await LocationService.instance.startSession(
+            position.latitude,
+            position.longitude,
+            capturedAt
+        );
+
+      } else {
+        // 2b. CLOCK OUT: Call endSession API
+        if (currentSessionId == null) throw Exception('Internal Error: No active session to close.');
+// 🎯 [O1] Send a final, high-accuracy point BEFORE clocking out
+        _sequenceNumber++;
+        await LocationService.instance.sendTrackingPoint(
+          currentSessionId,
+          position.latitude,
+          position.longitude,
+          capturedAt,
+          _sequenceNumber,
+        );
+        await LocationService.instance.endSession(
+            currentSessionId,
+            _sequenceNumber // Pass the final sequence number
+        );
+      }
+
+      // 3. State Update (Only if API call succeeded)
+      setState(() {
+        _isClockedIn = isClockingIn;
+        if (isClockingIn) {
+          _activeSessionId = newSessionId;
+          _startLocationTracking(newSessionId!);
         } else {
-          _stopLocationTracking();  // Just clocked OUT, so stop tracking
+          _stopLocationTracking();
         }
-// ⭐ FIX: Determine success message based on the NEW state (post-toggle)
-        final String newStateLabel = _isClockedIn ? 'Clocked In' : 'Clocked Out';
+      });
 
-        // ⭐ FIX: Use dynamic label in the success message
-        _showLocationAlert(
-          'Punch Success',
-          'Your location has been successfully tracked and you are now **$newStateLabel**.',
-        );
-        // TODO: ADD YOUR MAIN ATTENDANCE/PUNCH API CALL HERE
-        break;
+      // 4. Show Success Alert
+      final newStateLabel = isClockingIn ? 'Clocked In' : 'Clocked Out';
+      _showLocationAlert(
+        'Punch Success',
+        'Your location has been successfully tracked and you are now **$newStateLabel**.',
+      );
 
-      case LocationCheckStatus.serviceDisabled:
-        _showLocationAlert(
-          'Location Required',
-          'Please **enable your device\'s location service** to proceed with $statusLabel.', // Use dynamic label
-          canOpenSettings: true,
-        );
-        break;
-
-      case LocationCheckStatus.permissionDenied:
-      case LocationCheckStatus.permissionDeniedForever:
-      // Automatically open app settings if permission is denied
-        _showLocationAlert(
-          'Permission Required',
-          'Location permission is mandatory. Please grant it in app settings.',
-          canOpenSettings: true,
-        );
-        // Note: Geolocator.requestPermission() already prompts the user.
-        // openAppSettings() is primarily for "deniedForever" states.
+    } on Exception catch (e) {
+      // 5. Handle All Failures
+      _showLocationAlert(
+        'Error',
+        'Failed to $statusLabel. $e',
+      );
+      // Handle location-specific errors
+      if (e.toString().contains('permission_denied')) {
         Geolocator.openAppSettings();
-        break;
-
-      case LocationCheckStatus.apiFailure:
-        _showLocationAlert(
-          'Error',
-          'Failed to complete $statusLabel. Unable to send location data to the server (400, 403, or network error).',
-        );
-        break;
+      } else if (e.toString().contains('location_services_disabled')) {
+        Geolocator.openLocationSettings();
+      }
+    } finally {
+      // Re-enable the button
+      if (mounted) {
+        setState(() { _isPunching = false; });
+      }
     }
-    // 3. Dismiss loading/processing state if necessary
   }
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -580,8 +753,11 @@ class MyDayScreenState extends State<MyDayScreen>
                 ShiftDetail(label: 'Next',     value: '—'),
               ],
               actions: [
-                // ⭐ UPDATED BUTTON CALL
-                ActionBtn.primary(_punchButtonText, _handleClockIn), // ⭐ USE computed property
+                // 🎯 *** THE FIX ***
+                // Pass the non-nullable _handleClockIn directly.
+                // The logical guard `if (_isPunching)` at the start of the
+                // function will prevent concurrent execution.
+                ActionBtn.primary(_punchButtonText, _handleClockIn),
                 ActionBtn.outline('View Team', widget.onViewTeam, context),
                 ActionBtn.danger('Can\'t Make?', widget.onCantMake),
               ],
@@ -657,7 +833,8 @@ class MyDayScreenState extends State<MyDayScreen>
                   ShiftDetail(label: 'Next',     value: d.next),
                 ],
                 actions: [
-                  // ⭐ USE COMPUTED PROPERTY HERE
+                  // 🎯 *** THE FIX ***
+                  // Pass the non-nullable _handleClockIn directly.
                   ActionBtn.primary(_punchButtonText, _handleClockIn),
                   ActionBtn.outline('View Team', widget.onViewTeam, context),
                   ActionBtn.danger('Can\'t Make?', widget.onCantMake),
