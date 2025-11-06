@@ -5,12 +5,15 @@ import '../../shared/ui.dart';
 // 🎯 NEW IMPORTS
 import '../../data/services/notification_service.dart';
 import '../../data/models/notification_model.dart';
+import '../../shared/widgets/layouts.dart'; //
+import '../../shared/widgets/lists.dart'; //
 
 class InboxScreen extends StatefulWidget {
   final VoidCallback onClockIn;
   final VoidCallback onMarkAllRead;
   final VoidCallback onSettings;
   final VoidCallback onCantMake;
+  final bool isModal; // 👈 --- ADD THIS PROPERTY
 
   const InboxScreen({
     super.key,
@@ -18,6 +21,7 @@ class InboxScreen extends StatefulWidget {
     required this.onMarkAllRead,
     required this.onSettings,
     required this.onCantMake,
+    this.isModal = false, // 👈 --- ADD THIS (default to false)
   });
 
   @override
@@ -132,76 +136,200 @@ class _InboxScreenState extends State<InboxScreen> {
     );
   }
 
+  // @override
+  // Widget build(BuildContext context) {
+  //   return GradientScaffold(
+  //     title: 'Inbox',
+  //     trailing: const Icon(Icons.inbox_rounded, color: Colors.white),
+  //     child: RefreshIndicator(
+  //       onRefresh: () async {
+  //         _fetchNotifications();
+  //         await _notificationsFuture;
+  //       },
+  //       child: FutureBuilder<NotificationPage>(
+  //         future: _notificationsFuture,
+  //         builder: (context, snapshot) {
+  //           // 1. Loading State
+  //           if (snapshot.connectionState != ConnectionState.done) {
+  //             return const Center(child: CircularProgressIndicator());
+  //           }
+  //
+  //           // 2. Error State
+  //           if (snapshot.hasError) {
+  //             return Center(
+  //               child: Text('Failed to load notifications: ${snapshot.error}', textAlign: TextAlign.center),
+  //             );
+  //           }
+  //
+  //           final notifications = snapshot.data!.content;
+  //
+  //           // 3. Data State (Dynamic List View)
+  //           return ListView(
+  //             padding: const EdgeInsets.only(bottom: 24),
+  //             children: [
+  //               Card(
+  //                 margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+  //                 child: Column(
+  //                   children: [
+  //                     if (notifications.isEmpty)
+  //                       const Padding(
+  //                         padding: EdgeInsets.all(16.0),
+  //                         child: Text('Your inbox is empty.', style: TextStyle(color: Colors.black54)),
+  //                       ),
+  //                     // 🎯 DYNAMICALLY RENDERED ROWS
+  //                     ...notifications.map((n) => Column(
+  //                       children: [
+  //                         _notificationRow(context, n),
+  //                         const Divider(height: 1),
+  //                       ],
+  //                     )).toList(),
+  //                   ],
+  //                 ),
+  //               ),
+  //
+  //               // Static action buttons (kept for existing functionality)
+  //               Padding(
+  //                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+  //                 child: Row(
+  //                   children: [
+  //                     Expanded(child: ActionBtn.outline('Mark All Read', widget.onMarkAllRead, context)),
+  //                     Expanded(child: ActionBtn.outline('Filter', () {}, context)),
+  //                     Expanded(child: ActionBtn.primary('Settings', widget.onSettings)),
+  //                   ],
+  //                 ),
+  //               )
+  //             ],
+  //           );
+  //         },
+  //       ),
+  //     ),
+  //   );
+  // }
+// --- 3. 👇 THIS IS THE UPDATED BUILD METHOD ---
   @override
   Widget build(BuildContext context) {
-    return GradientScaffold(
-      title: 'Inbox',
-      trailing: const Icon(Icons.inbox_rounded, color: Colors.white),
-      child: RefreshIndicator(
-        onRefresh: () async {
-          _fetchNotifications();
-          await _notificationsFuture;
-        },
-        child: FutureBuilder<NotificationPage>(
-          future: _notificationsFuture,
-          builder: (context, snapshot) {
-            // 1. Loading State
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
 
-            // 2. Error State
-            if (snapshot.hasError) {
-              return Center(
-                child: Text('Failed to load notifications: ${snapshot.error}', textAlign: TextAlign.center),
-              );
-            }
+    // First, define the main content widget
+    final Widget screenBody = RefreshIndicator(
+      onRefresh: () async {
+        _fetchNotifications();
+        await _notificationsFuture;
+      },
+      child: FutureBuilder<NotificationPage>(
+        future: _notificationsFuture,
+        builder: (context, snapshot) {
+          // 1. Loading State
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-            final notifications = snapshot.data!.content;
+          // 2. Error State
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(
+                'Failed to load notifications: ${snapshot.error}',
+                textAlign: TextAlign.center,
+                // Adjust text color if we are on the gradient
+                style: widget.isModal ? null : const TextStyle(color: Colors.white70),
+              ),
+            );
+          }
 
-            // 3. Data State (Dynamic List View)
-            return ListView(
-              padding: const EdgeInsets.only(bottom: 24),
-              children: [
-                Card(
-                  margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                  child: Column(
-                    children: [
-                      if (notifications.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(16.0),
-                          child: Text('Your inbox is empty.', style: TextStyle(color: Colors.black54)),
-                        ),
-                      // 🎯 DYNAMICALLY RENDERED ROWS
-                      ...notifications.map((n) => Column(
-                        children: [
-                          _notificationRow(context, n),
-                          const Divider(height: 1),
-                        ],
-                      )).toList(),
-                    ],
-                  ),
+          final notifications = snapshot.data!.content;
+
+          // 3. Empty State
+          if (notifications.isEmpty) {
+            return Center(
+              child: Text(
+                'Your inbox is empty.',
+                style: widget.isModal
+                    ? const TextStyle(color: Colors.black54)
+                    : const TextStyle(color: Colors.white70),
+              ),
+            );
+          }
+
+          // 4. Data State (Dynamic List View)
+          return ListView(
+            padding: const EdgeInsets.only(bottom: 24),
+            children: [
+              Card(
+                margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                child: Column(
+                  children: notifications.map((n) {
+                    return Column(
+                      children: [
+                        _notificationRow(context, n),
+                        if (n != notifications.last) const Divider(height: 1),
+                      ],
+                    );
+                  }).toList(),
                 ),
+              ),
 
-                // Static action buttons (kept for existing functionality)
+              // 5. Show action buttons only if this is NOT a modal
+              if (!widget.isModal)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                   child: Row(
                     children: [
-                      Expanded(child: ActionBtn.outline('Mark All Read', widget.onMarkAllRead, context)),
+                      // "Mark All Read" is in the AppBar now, so we can remove it here.
+                      // Expanded(child: ActionBtn.outline('Mark All Read', _handleMarkAllRead, context)),
                       Expanded(child: ActionBtn.outline('Filter', () {}, context)),
                       Expanded(child: ActionBtn.primary('Settings', widget.onSettings)),
                     ],
                   ),
                 )
-              ],
-            );
-          },
-        ),
+            ],
+          );
+        },
       ),
+    );
+
+    // --- 4. Conditionally return the correct scaffold ---
+    if (widget.isModal) {
+      // If opened from the bell icon, build a plain white scaffold
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Inbox'),
+          backgroundColor: Colors.white,
+          elevation: 0,
+          scrolledUnderElevation: 1,
+          actions: [
+            IconButton(
+              tooltip: 'Mark All Read',
+              icon: const Icon(Icons.check_circle_outline),
+              onPressed: _handleMarkAllRead, // Use the existing handler
+            ),
+          ],
+        ),
+        // ✅ --- ADD THE GRADIENT CONTAINER TO THE BODY ---
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF667EEA), Color(0xFF764BA2)], // The app's gradient
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: screenBody, // Place the content inside the gradient
+        ),// Use the extracted body
+      );
+    }
+
+    // Otherwise, build the default gradient scaffold for the tab
+    return GradientScaffold(
+      title: 'Inbox',
+      trailing: IconButton(
+        tooltip: 'Mark All Read',
+        icon: const Icon(Icons.check_circle_outline, color: Colors.white),
+        onPressed: _handleMarkAllRead, // Use the existing handler
+      ),
+      child: screenBody, // Use the extracted body
     );
   }
 }
+
 
 // Helper DTO used internally for pill styles
 class _PillData {

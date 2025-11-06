@@ -8,8 +8,9 @@ plugins {
 android {
     namespace = "com.example.kiosk"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
-
+//    ndkVersion = flutter.ndkVersion
+// 🎯 FIX 1: Add the NDK version suggested by the log
+    ndkVersion = "28.1.13356709"
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -22,8 +23,7 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.kiosk"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+//        minSdk = flutter.minSdkVersion
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

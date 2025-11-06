@@ -280,11 +280,12 @@ import 'app_theme.dart';
 
 // Modern services
 import '../data/services/tenant_service.dart';
-import '../data/services/auth_service.dart';
+import '../data/services/auth_service.dart'; // 👈 NO CHANGE (already imported)
 import '../features/auth/tenant_setup_screen.dart';
 import '../features/auth/login_screen.dart';
-// ... (Make sure MyDayScreen is imported)
-import '../features/home/my_day_screen.dart';
+// --- 👇 ADD THIS IMPORT ---
+import '../features/reportee/reportee_list_screen.dart';
+// --- END OF IMPORT ---
 
 final GlobalKey<NavigatorState> appNavigator = GlobalKey<NavigatorState>();
 
@@ -372,9 +373,23 @@ class _RootShellState extends State<RootShell> {
 
   // final PageController _pageController = PageController();
 
-  // 🎯 NEW: Function to switch to the Inbox tab (Index 4)
+  // 🎯 MODIFIED: This function now pushes the Inbox as a new page
+  // It's called by the bell icon (from MyDayScreen)
   void _goToInbox() {
-    _pageTo(4); // Assuming Inbox is at index 4 (0-MyDay, 1-Timesheet, 2-Schedule, 3-Leave, 4-Inbox)
+    // We use the root navigator (Navigator.of(context)) to push
+    // the InboxScreen on top of the current tab.
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => InboxScreen(
+        isModal: true, // 👈 --- PASS `true` HERE
+        // We must pass the same props here that the tab used to have
+        onClockIn: () => _toast('✅ Clocked in'),
+        onMarkAllRead: () {
+          NotificationService.instance.markAllAsRead();
+        },
+        onSettings: () => _toast('⚙️ Settings opened'),
+        onCantMake: _gotoReplacement,
+      ),
+    ));
   }
 
   void _pageTo(int index) {
@@ -432,7 +447,6 @@ class _RootShellState extends State<RootShell> {
 
   Future<void> _handleBack() async {
     final nav = _navigatorKeys[_index].currentState;
-
     // 1) If current tab can pop an inner route (e.g., Leave -> Apply form), do that.
     if (nav != null && await nav.maybePop()) {
       return;
@@ -496,13 +510,32 @@ class _RootShellState extends State<RootShell> {
   }
   @override
   Widget build(BuildContext context) {
+    // --- 👇 GET THE FLAG FROM AUTHSERVICE ---
+    final bool hasReportees = AuthService.instance.hasReportees;
+
+    // --- 👇 REPLACE THE STATIC navItems LIST ---
+    // ⛔ REMOVE THIS:
+    // final navItems = <_NavItem>[
+    //   _NavItem('My Day', Icons.home_rounded),
+    //   _NavItem('Timesheet', Icons.bar_chart_rounded),
+    //   _NavItem('Schedule', Icons.calendar_month_rounded),
+    //   _NavItem('Leave', Icons.beach_access_rounded),
+    //   _NavItem('Inbox', Icons.inbox_rounded),
+    // ];
+
+    // ✅ ADD THIS DYNAMIC LIST INSTEAD:
     final navItems = <_NavItem>[
       _NavItem('My Day', Icons.home_rounded),
       _NavItem('Timesheet', Icons.bar_chart_rounded),
       _NavItem('Schedule', Icons.calendar_month_rounded),
       _NavItem('Leave', Icons.beach_access_rounded),
-      _NavItem('Inbox', Icons.inbox_rounded),
+      // This is now the conditional 5th item
+      if (hasReportees)
+        _NavItem('Reportee', Icons.people_outline_rounded)
+      else
+        _NavItem('Inbox', Icons.inbox_rounded),
     ];
+    // --- END OF CHANGE ---
 
     return Container(
       decoration: const BoxDecoration(
@@ -560,8 +593,10 @@ class _RootShellState extends State<RootShell> {
                     onViewTeam: () => _toast('👥 Team screen coming soon'),
                     // 🎯 NEW: Pass the logout function to the MyDayScreen
                     onLogout: _confirmAndLogout,
-                    // 🎯 PASS CALLBACK TO SWITCH TAB
-                    onBellClick: _goToInbox,
+                    // 👇 THIS IS THE KEY CHANGE FOR THE BELL ICON
+                    // It will pass `_goToInbox` if user has reportees (showing the bell)
+                    // It will pass `null` if not (hiding the bell)
+                    onBellClick: hasReportees ? _goToInbox : null,
                   ),
                 ),
                 _buildTabNavigator(
@@ -588,22 +623,38 @@ class _RootShellState extends State<RootShell> {
                         _toast('📋 Leave application submitted for approval'),
                   ),
                 ),
-                _buildTabNavigator(
+                // --- 👇 REPLACE THE 5TH CHILD ---
+                // ⛔ REMOVE THIS:
+                // _buildTabNavigator(
+                //   4,
+                //   InboxScreen(
+                //     onClockIn: () => _toast('✅ Clocked in'),
+                //     onMarkAllRead: () { ... },
+                //     onSettings: () => _toast('⚙️ Settings opened'),
+                //     onCantMake: _gotoReplacement,
+                //   ),
+                // ),
+
+                // ✅ ADD THIS CONDITIONAL BLOCK INSTEAD:
+                hasReportees
+                // 5.a: If user HAS reportees, show the new ReporteeListScreen
+                    ? _buildTabNavigator(
+                  4,
+                  ReporteeListScreen(),
+                )
+                // 5.b: Otherwise, show the existing InboxScreen
+                    : _buildTabNavigator(
                   4,
                   InboxScreen(
                     onClockIn: () => _toast('✅ Clocked in'),
                     onMarkAllRead: () {
-                      // setState(() => inboxBadge = 0);
-                      // _toast('📬 All messages marked as read');
-                      // Trigger a service call to mark as read, which updates the notifier.
                       NotificationService.instance.markAllAsRead();
                     },
                     onSettings: () => _toast('⚙️ Settings opened'),
                     onCantMake: _gotoReplacement,
-                    // 🎯 PASS THE REFRESH LOGIC DOWN
-                    // onMarkAllRead: _onMarkAllReadClicked,
                   ),
                 ),
+                // --- END OF CHANGE ---
               ],
             ),
           ),

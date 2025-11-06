@@ -38,7 +38,24 @@ class Routes {
       '/api/wfm/timesheets/employee/$employeeId/range?startDate=$startYmd&endDate=$endYmd';
 
   // ⭐ NEW LOCATION TRACKING ROUTE
-  static String get trackLocation => '/api/wfm/location/track'; //
+  static String get trackLocation => '/api/wfm/location/track';
+
+  // --- 👇 ADD THIS NEW ROUTE ---
+
+  /// GET /api/assignments/employee-groups/scoped-employees/me
+  /// Fetches the list of employees who report to the current user.
+  static String get getReportees => '/api/assignments/employee-groups/scoped-employees/me';
+
+  // --- 👇 ADD THIS NEW ROUTE ---
+
+  /// GET /api/tracking/query/path/latest/{employeeId}
+  static String getLatestReporteePath(String employeeId) =>
+      '/api/tracking/query/path/latest/$employeeId';
+
+  // 🎯 ADD THIS NEW ROUTE
+  /// GET /api/tracking/query/path/for-date/{employeeId}?date=YYYY-MM-DD
+  static String getReporteePathForDate(String employeeId, String ymd) =>
+      '/api/tracking/query/path/for-date/$employeeId?date=$ymd';
 
   /// GET /api/employee/shifts/employee-shift-roster/{employeeId}?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
   // static String employeeShiftRoster(

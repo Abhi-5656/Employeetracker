@@ -137,6 +137,7 @@
 import 'package:flutter/material.dart';
 import '../../data/services/auth_api.dart';
 import '../../data/services/auth_service.dart';
+import '../../data/services/employee_service.dart'; // 👈 ADD THIS IMPORT
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -170,18 +171,25 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passCtrl.text,
       );
 
-      // Ensure session is marked signed-in:
       if (AuthService.instance.accessToken == null ||
           AuthService.instance.employeeId == null) {
         throw StateError('Login succeeded but session is incomplete.');
       }
 
+      // --- 👇 ADD THESE TWO LINES ---
+      // 3. Check for reportees
+      final reportees = await EmployeeService.instance.getReportees();
+      // 4. Set the flag based on the result
+      await AuthService.instance.setHasReportees(reportees.isNotEmpty);
+      // --- END OF ADDITION ---
       if (!mounted) return;
 
       // Navigate to your root/home. Adjust route if you use named routes.
       Navigator.of(context).pushReplacementNamed('/');
 
     } catch (e) {
+      // 6. 👇 ADD THIS LINE to reset the flag on error
+      await AuthService.instance.setHasReportees(false);
       setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _isBusy = false);

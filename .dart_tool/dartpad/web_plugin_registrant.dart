@@ -10,6 +10,7 @@ import 'package:camera_web/camera_web.dart';
 import 'package:connectivity_plus/src/connectivity_plus_web.dart';
 import 'package:flutter_secure_storage_web/flutter_secure_storage_web.dart';
 import 'package:geolocator_web/geolocator_web.dart';
+import 'package:maplibre_gl_web/maplibre_gl_web.dart';
 import 'package:shared_preferences_web/shared_preferences_web.dart';
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 
@@ -19,6 +20,7 @@ void registerPlugins([final Registrar? pluginRegistrar]) {
   ConnectivityPlusWebPlugin.registerWith(registrar);
   FlutterSecureStorageWeb.registerWith(registrar);
   GeolocatorPlugin.registerWith(registrar);
+  MapLibreMapPlugin.registerWith(registrar);
   SharedPreferencesPlugin.registerWith(registrar);
   registrar.registerMessageHandler();
 }

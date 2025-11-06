@@ -17,6 +17,7 @@
         "google_mlkit_face_detection",
         "image",
         "intl",
+        "maplibre_gl",
         "path",
         "path_provider",
         "shared_preferences",
@@ -51,6 +52,15 @@
         "stream_channel",
         "test_api",
         "vector_math"
+      ]
+    },
+    {
+      "name": "maplibre_gl",
+      "version": "0.22.0",
+      "dependencies": [
+        "flutter",
+        "maplibre_gl_platform_interface",
+        "maplibre_gl_web"
       ]
     },
     {
@@ -293,6 +303,26 @@
         "stream_channel",
         "string_scanner",
         "term_glyph"
+      ]
+    },
+    {
+      "name": "maplibre_gl_web",
+      "version": "0.22.0",
+      "dependencies": [
+        "flutter",
+        "flutter_web_plugins",
+        "image",
+        "js",
+        "maplibre_gl_platform_interface",
+        "meta"
+      ]
+    },
+    {
+      "name": "maplibre_gl_platform_interface",
+      "version": "0.22.0",
+      "dependencies": [
+        "flutter",
+        "meta"
       ]
     },
     {
@@ -744,17 +774,17 @@
       ]
     },
     {
-      "name": "win32",
-      "version": "5.15.0",
-      "dependencies": [
-        "ffi"
-      ]
-    },
-    {
       "name": "js",
       "version": "0.6.7",
       "dependencies": [
         "meta"
+      ]
+    },
+    {
+      "name": "win32",
+      "version": "5.15.0",
+      "dependencies": [
+        "ffi"
       ]
     },
     {

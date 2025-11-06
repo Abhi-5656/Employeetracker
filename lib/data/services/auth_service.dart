@@ -258,9 +258,10 @@
 
 
 // lib/data/services/auth_service.dart
+
+// In lib/data/services/auth_service.dart
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../services/tenant_service.dart';
 import 'dart:convert'; // for base64/json decode
 
 import 'auth_api.dart'; // your existing API wrapper for /login and /refresh
@@ -437,6 +438,7 @@ class AuthService {
   static const _kKeyEmployeeId    = 'employee_id';
   static const _kKeyEmployeeName  = 'employee_name';
   static const _kKeyEmail         = 'email';
+  static const _kKeyHasReportees  = 'has_reportees'; // <-- ADD THIS
 
   // In-memory copies (mirror of SessionController)
   String? _accessToken;
@@ -445,6 +447,7 @@ class AuthService {
   String? _employeeId;
   String? _employeeName;
   String? _email;
+  bool hasReportees = false; // <-- ADD THIS
 
 // READERS if some screens need these:
   String? get accessToken   => _accessToken;
@@ -465,6 +468,8 @@ class AuthService {
     _email            = await _storage.read(key: _kKeyEmail);
     final expiryStr   = await _storage.read(key: _kKeyExpiryEpoch);
     _accessExpiryEpoch = expiryStr != null ? int.tryParse(expiryStr) : null;
+    // 👇 ADD THIS LINE
+    hasReportees = (await _storage.read(key: _kKeyHasReportees)) == 'true';
 
 // 2) If we have a refresh token, silently refresh access if needed
     if (_refreshToken != null && _refreshToken!.isNotEmpty) {
@@ -484,6 +489,13 @@ class AuthService {
     s.employeeName = _employeeName;
     s.email        = _email;
     s.isSignedIn.value = isAuthenticated.value;
+  }
+
+// 👇 ADD THIS NEW METHOD
+  /// Stores the user's reportee status in memory and secure storage.
+  Future<void> setHasReportees(bool value) async {
+    hasReportees = value;
+    await _persist(); // Call persist to save the new value
   }
 
   /// Preferred entry-point from a successful login.
@@ -586,6 +598,7 @@ class AuthService {
     _employeeId = null;
     _employeeName = null;
     _email = null;
+    hasReportees = false; // <-- ADD THIS
     isAuthenticated.value = false;
 
     await _storage.delete(key: _kKeyAccessToken);
@@ -594,6 +607,7 @@ class AuthService {
     await _storage.delete(key: _kKeyEmployeeId);
     await _storage.delete(key: _kKeyEmployeeName);
     await _storage.delete(key: _kKeyEmail);
+    await _storage.delete(key: _kKeyHasReportees); // <-- ADD THIS
 
     // ✅ keep old callers consistent
     SessionController.instance.clear();
@@ -641,6 +655,8 @@ class AuthService {
     await _storage.write(key: _kKeyEmployeeId, value: _employeeId);
     await _storage.write(key: _kKeyEmployeeName, value: _employeeName);
     await _storage.write(key: _kKeyEmail, value: _email);
+    // 👇 ADD THIS LINE
+    await _storage.write(key: _kKeyHasReportees, value: hasReportees.toString());
     if (_accessExpiryEpoch != null) {
       await _storage.write(key: _kKeyExpiryEpoch, value: _accessExpiryEpoch!.toString());
     }
