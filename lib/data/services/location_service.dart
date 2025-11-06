@@ -32,24 +32,23 @@ class LocationService {
 
   // 1. CLOCK IN (START SESSION)
   Future<String> startSession(double lat, double lng, String capturedAt) async {
-    // final employeeId = AuthService.instance.employeeId;
-    // Note: ApiClient's internal _headers helper automatically adds
+    // ApiClient's internal _headers helper automatically adds
     // the X-Tenant-Id from TenantService.instance.tenantId.
-    // No need to pass it manually.
-
     final body = {
       "lat": lat,
       "lng": lng,
       "capturedAt": capturedAt
     };
 
-    // ⭐ NEW ROUTE: Using the assumed new Clock-In endpoint
+    // This calls the DTO in:
+    // .../dto/ClockInRequest.java
     final response = await ApiClient.instance.postJson(
-      '/api/tracking/clock-in', // Assuming the path defined in backend plan
+      '/api/tracking/clock-in',
       body: body,
     );
 
-    // Server must return { sessionId: 12345, status: "OPEN" }
+    // This matches the DTO in:
+    // .../dto/ClockInResponse.java
     final sessionId = response['sessionId']?.toString();
     if (sessionId == null) {
       throw Exception('Server did not return a session ID on Clock-In.');
@@ -60,7 +59,7 @@ class LocationService {
   // 2. PERIODIC PING / POINT
   Future<void> sendTrackingPoint(String sessionId, double lat, double lng, String capturedAt, int seq) async {
     final body = {
-      // Backend expects sessionId as a number (Long)
+      // Backend DTOs expect sessionId as a number (Long)
       "sessionId": int.tryParse(sessionId) ?? 0,
       "lat": lat,
       "lng": lng,
@@ -68,7 +67,8 @@ class LocationService {
       "seq": seq,
     };
 
-    // ⭐ NEW ROUTE: Using the assumed new Tracking Point endpoint
+    // This calls the DTO in:
+    // .../dto/PointRequest.java
     await ApiClient.instance.postJson(
       '/api/tracking/point',
       body: body,
@@ -82,35 +82,34 @@ class LocationService {
       "seq": seq,
     };
 
-    // ⭐ NEW ROUTE: Using the assumed new Clock-Out endpoint
+    // This calls the DTO in:
+    // .../dto/CloseRequest.java
     await ApiClient.instance.postJson(
       '/api/tracking/clock-out',
       body: body,
     );
   }
 
-  // 4. [R3] GET LIVE SESSION (for Warm-Start)
+  // 4. [NEW] GET LIVE SESSION (for Warm-Start)
+  // This method is required by the new my_day_screen logic.
   Future<Map<String, dynamic>?> getLive() async {
-    // We use getJson which automatically adds Auth and X-Tenant-Id
     try {
+      // We will add this /live endpoint to the backend in Step 2.
       final resp = await ApiClient.instance.getJson(
         '/api/tracking/live',
       );
-      // If server returns 200 OK with empty body or no sessionId, treat as no session
       if (resp.isEmpty || resp['sessionId'] == null) {
         return null;
       }
       return resp;
     } on ApiException catch (e) {
-      // Handle 404 (No Open Session) gracefully
       if (e.statusCode == 404) {
-        return null;
+        return null; // 404 means no open session, which is fine.
       }
-      // Re-throw other API errors
-      rethrow;
+      rethrow; // Re-throw other API errors
     } catch (e) {
       debugPrint('getLive error: $e');
-      return null; // Treat other errors as no-session
+      return null;
     }
   }
   // ⭐ UPDATED: Method now requires punchType
@@ -120,6 +119,9 @@ class LocationService {
       String punchType,
       {String? sessionId} // ⭐ NEW: Optional named parameter for session ID
       ) async {
+
+    // This old logic is not compatible with your new backend.
+    debugPrint('WARNING: DEPRECATED location_service method "checkAndTrackLocation" was called.');
     // ⭐ FIX 2: GET EMPLOYEE ID BEFORE CONTINUING
     final employeeId = AuthService.instance.employeeId;
     if (employeeId == null || employeeId.isEmpty) {
@@ -162,21 +164,19 @@ class LocationService {
         timeLimit: const Duration(seconds: 15),
       );
 
-      // ⭐ UPDATED: Pass punchType AND sessionId to the factory constructor
       final model = EmployeeLocationModel.fromPosition(
         employeeId,
         position,
         punchType,
-        sessionId: sessionId, // Pass the ID
+        sessionId: sessionId,
       );
 
-      // Call the API to track the location coordinates
+      // This is the WRONG endpoint.
       await ApiClient.instance.postJson(
-        Routes.trackLocation,
+        Routes.trackLocation, // This is not /api/tracking/point
         body: model.toJson(),
       );
 
-      // If execution reaches here, the API call was successful (2xx status)
       return LocationCheckStatus.success;
 
     } on Exception catch (e) {

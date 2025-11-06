@@ -351,22 +351,16 @@ class MyDayScreen extends StatefulWidget {
 class MyDayScreenState extends State<MyDayScreen>
     with AutomaticKeepAliveClientMixin<MyDayScreen> {
   Future<MyDayData>? _future;
-// ⭐ NEW STATE VARIABLE: Tracks current punch status
+// --- STATE for Tracking ---
   bool _isClockedIn = false;
+  String? _activeSessionId;
+  Timer? _locationTimer;
+  int _sequenceNumber = 0;
+  bool _isPunching = false; // Prevents double-taps
+  // ---
 
-  // ⭐ NEW COMPUTED PROPERTY: Determines the button text
   String get _punchButtonText => _isClockedIn ? 'Clock Out' : 'Clock In';
 
-  // ⭐ NEW STATE: Stores the active session ID provided by the server
-  String? _activeSessionId;
-
-// ⭐ NEW: Timer instance for periodic tracking
-  Timer? _locationTimer;
-
-// ⭐ NEW STATE: Monotonically increasing sequence number for RabbitMQ/Chunking logic
-  int _sequenceNumber = 0;
-// Used to prevent multiple clicks while one is processing
-  bool _isPunching = false;
   // // 🎯 NEW: State to hold the live unread count
   // int _unreadBadgeCount = 0;
   // Future<void>? _badgeFuture;
@@ -383,14 +377,16 @@ class MyDayScreenState extends State<MyDayScreen>
     // 🎯 [R3] ADDED: Call warm-start to check for existing sessions
     _warmStart();
   }
-  // 🎯 [R3] NEW: Method to check for an existing session on app start
+
+  // NEW: Method to check for an existing session on app start
   Future<void> _warmStart() async {
     try {
-      // This calls GET /api/tracking/live
+      // Calls GET /api/tracking/live
       final live = await LocationService.instance.getLive();
       if (live != null && live['sessionId'] != null && mounted) {
         final sessionId = live['sessionId'].toString();
         // Sync sequence number from server
+        // We use totalPoints as the last sequence number
         final serverSeq = (live['totalPoints'] as int? ?? 0);
 
         debugPrint('Warm-start: Found active session $sessionId with $serverSeq points.');
@@ -494,7 +490,6 @@ class MyDayScreenState extends State<MyDayScreen>
   void _startLocationTracking(String sessionId) {
     // Ensure any existing timer is cancelled before starting a new one
     _locationTimer?.cancel();
-
     debugPrint('Starting periodic location tracking (Interval: ${LOCATION_TRACKING_INTERVAL.inSeconds}s) for session $sessionId');
 
     // Use Timer.periodic to repeatedly call the tracking logic
@@ -530,9 +525,10 @@ class MyDayScreenState extends State<MyDayScreen>
           sessionId,
           position.latitude,
           position.longitude,
-          position.timestamp.toUtc().toIso8601String(),
+          ts,
           _sequenceNumber, // Pass the sequence number
         );
+        debugPrint('Sent periodic point seq=$_sequenceNumber for session $sessionId');
       } catch (e) {
         debugPrint('Periodic tracking error: $e');
         // Stop the timer if location services or permissions are lost while tracking
@@ -542,15 +538,14 @@ class MyDayScreenState extends State<MyDayScreen>
         }
       }
     });
-
   }
 
-  // ⭐ NEW: Method to stop the periodic tracking
+  // UPDATED: Method to stop periodic tracking
   void _stopLocationTracking() {
     debugPrint('Stopping periodic location tracking.');
     _locationTimer?.cancel();
     _locationTimer = null;
-    _activeSessionId = null; // Clear session ID on clock out
+    _activeSessionId = null;
     _sequenceNumber = 0; // Reset sequence
   }
   // --- NEW CLOCK-IN HANDLER WITH LOCATION LOGIC ---
@@ -660,16 +655,18 @@ class MyDayScreenState extends State<MyDayScreen>
       final capturedAt = (position.timestamp ?? DateTime.now()).toUtc().toIso8601String();
 
       // Increment sequence number for the main action
-      _sequenceNumber++;
+      // _sequenceNumber++;
       String? newSessionId;
       if (isClockingIn) {
-        // 2a. CLOCK IN: Call startSession API
-        newSessionId = await LocationService.instance.startSession(
-            position.latitude,
-            position.longitude,
-            capturedAt
-        );
+        // --- CLOCK-IN FLOW ---
+        _sequenceNumber = 0; // Reset sequence for new session
 
+        newSessionId = await LocationService.instance.startSession(
+          position.latitude,
+          position.longitude,
+          capturedAt,
+        );
+        debugPrint('Clock-In successful. Received Session ID: $newSessionId');
       } else {
         // 2b. CLOCK OUT: Call endSession API
         if (currentSessionId == null) throw Exception('Internal Error: No active session to close.');
@@ -682,10 +679,13 @@ class MyDayScreenState extends State<MyDayScreen>
           capturedAt,
           _sequenceNumber,
         );
+        debugPrint('Sent final point seq=$_sequenceNumber for session $currentSessionId');
+        // Now, close the session
         await LocationService.instance.endSession(
             currentSessionId,
             _sequenceNumber // Pass the final sequence number
         );
+        debugPrint('Sent clock-out for session $currentSessionId');
       }
 
       // 3. State Update (Only if API call succeeded)
@@ -699,11 +699,9 @@ class MyDayScreenState extends State<MyDayScreen>
         }
       });
 
-      // 4. Show Success Alert
-      final newStateLabel = isClockingIn ? 'Clocked In' : 'Clocked Out';
       _showLocationAlert(
         'Punch Success',
-        'Your location has been successfully tracked and you are now **$newStateLabel**.',
+        'You are now ${isClockingIn ? "Clocked In" : "Clocked Out"}.',
       );
 
     } on Exception catch (e) {
