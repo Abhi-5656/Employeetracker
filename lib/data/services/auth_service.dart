@@ -605,6 +605,8 @@ class AuthService {
     return nowSec + 60 < _accessExpiryEpoch!; // renew 60s early
   }
 
+  get profile => null;
+
   Future<bool> _ensureValidAccessToken() async {
     if (_isAccessTokenValid) return true;
     if (_refreshToken == null || _refreshToken!.isEmpty) return false;

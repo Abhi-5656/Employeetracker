@@ -158,11 +158,16 @@ import 'package:intl/intl.dart';
 
 import '../../shared/ui.dart';
 
-// ✅ Service + models you added earlier for roster API
+// ✅ Existing roster API
 import '../../data/services/shift_service.dart';
 import '../../data/models/shift_roster_model.dart';
 
-// 🎯 NEW: Enum for view modes
+// ✅ NEW: holidays API + auth
+import '../../data/models/holiday_model.dart';
+import '../../data/services/holiday_service.dart';
+import '../../data/services/auth_service.dart';
+
+// 🎯 View modes
 enum ScheduleViewMode { week, month }
 
 class ScheduleScreen extends StatefulWidget {
@@ -182,55 +187,190 @@ class ScheduleScreen extends StatefulWidget {
 }
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
-  late DateTime _anchor; // any day in the visible period
+  late DateTime _anchor; // any day inside the visible period
   Future<List<EmployeeShiftRoster>>? _future;
 
-  // 🎯 NEW STATE: Track the current view mode (default is week)
+  // 🔒 Keep existing default: week view
   ScheduleViewMode _viewMode = ScheduleViewMode.week;
+
+  // --- Holidays state (cached by year; 'yyyy-MM-dd' -> list of Holiday) ---
+  final Map<String, List<Holiday>> _holidaysByDateKey = {};
+  int? _holidaysYearLoaded;
+  bool _holidaysLoading = false;
+  String? _holidaysError;
 
   @override
   void initState() {
     super.initState();
-    // Initialize anchor to the current date
     _anchor = DateTime.now();
     _loadRoster();
+    // Kick off holiday load for the current visible year without blocking UI
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ensureHolidaysForVisibleYear(_startOfPeriod(_anchor));
+    });
   }
 
-  // ---- Date Calculation Helpers ----
-
-  // 🎯 Determines the start date of the current period based on view mode
+  // ---------- Period helpers ----------
   DateTime _startOfPeriod(DateTime d) {
     if (_viewMode == ScheduleViewMode.month) {
-      // Return the first day of the month
       return DateTime(d.year, d.month, 1);
     }
-    // Default to Monday start for week view
     final wd = d.weekday; // 1..7 (Mon..Sun)
-    return DateTime(d.year, d.month, d.day).subtract(Duration(days: wd - 1));
+    return DateTime(d.year, d.month, d.day).subtract(Duration(days: wd - 1)); // Monday
   }
 
-  // 🎯 Calculates the end date of the current period
   DateTime _endOfPeriod(DateTime start) {
     if (_viewMode == ScheduleViewMode.month) {
-      // Calculate the last day of the month
-      return DateTime(start.year, start.month + 1, 0);
+      return DateTime(start.year, start.month + 1, 0); // last day of month
     }
-    // Sunday end for week view (6 days after Monday start)
-    return start.add(const Duration(days: 6));
+    return start.add(const Duration(days: 6)); // Sunday
   }
 
-  // ---- Loading Logic ----
+  String _dayKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
+  // ---------- Data loads ----------
   void _loadRoster() {
     final start = _startOfPeriod(_anchor);
     final end = _endOfPeriod(start);
     setState(() {
-      // The same API is used, but with monthly start/end dates
       _future = ShiftService.instance.getRosterForRange(start: start, end: end);
     });
   }
 
-  // 🎯 NEW: Navigate to the previous period (week or month)
+  /// Robust loader that never throws if API returns partial/dirty holiday rows.
+  Future<void> _ensureHolidaysForVisibleYear(DateTime anyDayInPeriod) async {
+    final y = anyDayInPeriod.year;
+    if (_holidaysYearLoaded == y || _holidaysLoading) return;
+
+    final empId = AuthService.instance.employeeId;
+    if (empId == null || empId.isEmpty) return;
+
+    setState(() {
+      _holidaysLoading = true;
+      _holidaysError = null;
+    });
+
+    try {
+      final list = await HolidayService.instance
+          .fetchEmployeeHolidays(employeeId: empId, year: y);
+
+      // Index holidays by date (handles multi-day holidays)
+      final map = <String, List<Holiday>>{};
+      for (final h in list) {
+        DateTime d = h.startDate;
+        final last = h.endDate ?? h.startDate;
+        while (!d.isAfter(last)) {
+          final k = _dayKey(d);
+          (map[k] ??= <Holiday>[]).add(h);
+          d = d.add(const Duration(days: 1));
+        }
+      }
+
+      setState(() {
+        _holidaysByDateKey.addAll(map);
+        _holidaysYearLoaded = y;
+        _holidaysError = null; // ✅ clear any previous error
+      });
+    } catch (e) {
+      // Read a statusCode if the thrown error has one (from ApiClient.ApiException)
+      int? code;
+      try {
+        final dyn = e as dynamic;
+        if (dyn.statusCode is int) code = dyn.statusCode as int;
+      } catch (_) {}
+
+      // If backend says “no holidays” (404/204), treat as empty, not an error.
+      if (code == 404 || code == 204) {
+        setState(() {
+          _holidaysYearLoaded = y;
+          _holidaysError = null; // ✅ do NOT show the yellow warning
+        });
+      } else {
+        // Real failure (network, 5xx, parse, etc.) — show the warning line
+        setState(() => _holidaysError = 'Holidays fetch failed');
+      }
+    } finally {
+      if (mounted) setState(() => _holidaysLoading = false);
+    }
+
+  }
+
+
+
+
+
+
+
+
+
+
+  // Future<void> _ensureHolidaysForVisibleYear(DateTime anyDayInPeriod) async {
+  //   final y = anyDayInPeriod.year;
+  //   if (_holidaysYearLoaded == y || _holidaysLoading) return;
+  //
+  //   // Pull employee id from your auth/session
+  //   final empId = AuthService.instance.employeeId ??
+  //       AuthService.instance.profile?.employeeId?.toString();
+  //
+  //   if (empId == null || empId.isEmpty) return;
+  //
+  //   setState(() {
+  //     _holidaysLoading = true;
+  //     _holidaysError = null;
+  //   });
+  //
+  //   try {
+  //     final list = await HolidayService.instance
+  //         .fetchEmployeeHolidays(employeeId: empId, year: y);
+  //
+  //     // Index holidays by each covered day (handles single/multi-day holidays).
+  //     final map = <String, List<Holiday>>{};
+  //     for (final h in list) {
+  //       try {
+  //         // Be tolerant: start/end can be null; skip if invalid.
+  //         final DateTime? start = _extractDate(h.startDate);
+  //         final DateTime? end = _extractDate(h.endDate) ?? start;
+  //         if (start == null || end == null) continue;
+  //
+  //         // Ensure start <= end
+  //         final DateTime first =
+  //         start.isAfter(end) ? end : start;
+  //         final DateTime last =
+  //         end.isBefore(start) ? start : end;
+  //
+  //         DateTime d = DateTime(first.year, first.month, first.day);
+  //         final endD = DateTime(last.year, last.month, last.day);
+  //
+  //         while (!d.isAfter(endD)) {
+  //           final k = _dayKey(d);
+  //           (map[k] ??= <Holiday>[]).add(h);
+  //           d = d.add(const Duration(days: 1));
+  //         }
+  //       } catch (_) {
+  //         // Skip bad holiday rows silently
+  //         continue;
+  //       }
+  //     }
+  //
+  //     setState(() {
+  //       _holidaysByDateKey.addAll(map); // additive caching
+  //       _holidaysYearLoaded = y;
+  //     });
+  //   } catch (e) {
+  //     // Soft-fail: Keep the rest of the screen functional
+  //     setState(() => _holidaysError = 'Holidays fetch failed');
+  //   } finally {
+  //     if (mounted) setState(() => _holidaysLoading = false);
+  //   }
+  // }
+
+  /// Accepts DateTime or null; returns DateTime? (no parsing of strings here).
+  /// If your Holiday model uses String dates in some tenants, switch to:
+  ///   DateTime? _extractDate(dynamic v) { if (v is DateTime) return v; if (v is String && v.isNotEmpty) return DateTime.tryParse(v); return null; }
+  DateTime? _extractDate(DateTime? v) => v;
+
+  // ---------- Navigation ----------
   void _prevPeriod() {
     setState(() {
       if (_viewMode == ScheduleViewMode.month) {
@@ -240,9 +380,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       }
     });
     _loadRoster();
+    _ensureHolidaysForVisibleYear(_startOfPeriod(_anchor));
   }
 
-  // 🎯 NEW: Navigate to the next period (week or month)
   void _nextPeriod() {
     setState(() {
       if (_viewMode == ScheduleViewMode.month) {
@@ -252,36 +392,32 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       }
     });
     _loadRoster();
+    _ensureHolidaysForVisibleYear(_startOfPeriod(_anchor));
   }
 
-  // ---- UI Mapping Helpers ----
-
-  // 🎯 Helper to build the header label based on view mode
+  // ---------- UI helpers ----------
   String _buildHeaderLabel(DateTime start, DateTime end) {
     if (_viewMode == ScheduleViewMode.month) {
-      return DateFormat('MMMM yyyy').format(start); // e.g., October 2025
+      return DateFormat('MMMM yyyy').format(start);
     }
-    // Weekly format
-    final hdr = '${DateFormat('dd MMM').format(start)} — ${DateFormat('dd MMM yyyy').format(end)}';
+    final hdr =
+        '${DateFormat('dd MMM').format(start)} — ${DateFormat('dd MMM yyyy').format(end)}';
     return 'Week $hdr';
   }
 
-  // 🎯 _buildWeekStrip: Used ONLY when in Week View Mode
   List<SchedDayData> _buildWeekStrip(List<EmployeeShiftRoster> roster) {
     final start = _startOfPeriod(_anchor);
 
-    // index roster by date for O(1) lookups
-    final fmtIso = DateFormat('yyyy-MM-dd');
     final byDate = <String, EmployeeShiftRoster>{};
     for (final r in roster) {
       final k = r.calendarDate;
       if (k != null) byDate[k] = r;
     }
 
-    const weekdayShort = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const weekdayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final fmtIso = DateFormat('yyyy-MM-dd');
     final days = <SchedDayData>[];
 
-    // Iterate over 7 days for the WeekStrip visualization
     for (int i = 0; i < 7; i++) {
       final day = start.add(Duration(days: i));
       final key = fmtIso.format(day);
@@ -289,6 +425,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
       final hasShift = (r?.shift?.startTime != null || r?.shift?.endTime != null);
       final isOff = r?.isWeekOff == true;
+      // Prefer roster.isHoliday if backend already merges it. If not, month view still uses the fetched map.
       final isHoliday = r?.isHoliday == true;
 
       String time;
@@ -302,11 +439,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         time = '—';
       }
 
-      final location = (hasShift ? (r!.shift?.shiftLabel ?? r.shift?.shiftName ?? '') : '');
+      final location =
+      (hasShift ? (r!.shift?.shiftLabel ?? r.shift?.shiftName ?? '') : '');
 
       days.add(
         SchedDayData(
-          // Adjust weekday index (Dart: Mon=1, Sun=7. Array: 0..6)
           weekdayShort[(day.weekday - 1) % 7],
           DateFormat('d').format(day),
           time,
@@ -318,47 +455,79 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     return days;
   }
 
-  // 🎯 NEW: Builds the full monthly list of shifts
+  /// Month list: holidays **replace** the shift line; supports multi-holiday days.
   List<Widget> _buildMonthList(List<EmployeeShiftRoster> roster) {
-    // Roster items already contain shift details; filter for relevant days
-
-    if (roster.isEmpty) {
-      return [const Padding(padding: EdgeInsets.all(16), child: Center(child: Text('No shifts scheduled this month.')))];
+    if (roster.isEmpty && _monthHasNoHolidayKeys()) {
+      return const [
+        Padding(
+          padding: EdgeInsets.all(16),
+          child: Center(child: Text('No entries this month.')),
+        )
+      ];
     }
 
-    // Ensure data is sorted by date
-    roster.sort((a, b) => (a.calendarDate ?? '').compareTo(b.calendarDate ?? ''));
+    // Merge roster days with all days in visible month so holidays show even if no roster row exists
+    final mapByDate = <String, EmployeeShiftRoster?>{};
+    for (final r in roster) {
+      if (r.calendarDate != null) {
+        mapByDate[r.calendarDate!] = r;
+      }
+    }
 
-    return roster.map((r) {
-      final date = r.calendarDate != null ? DateFormat('EEEE, dd MMM').format(DateTime.parse(r.calendarDate!)) : 'Unknown Date';
-      final hasShift = (r.shift?.startTime != null || r.shift?.endTime != null);
-      final isOff = r.isWeekOff == true;
-      final isHoliday = r.isHoliday == true;
+    final start = DateTime(_anchor.year, _anchor.month, 1);
+    final end = DateTime(_anchor.year, _anchor.month + 1, 0);
+    DateTime d = start;
+    while (!d.isAfter(end)) {
+      final key = _dayKey(d);
+      mapByDate.putIfAbsent(key, () => mapByDate[key]);
+      d = d.add(const Duration(days: 1));
+    }
 
-      String shiftDetails;
+    final sortedKeys = mapByDate.keys.toList()..sort();
+
+    return sortedKeys.map((key) {
+      final r = mapByDate[key];
+      final date = DateFormat('EEEE, dd MMM').format(DateTime.parse(key));
+
+      final todaysHolidays = _holidaysByDateKey[key] ?? const <Holiday>[];
+      final hasHoliday = todaysHolidays.isNotEmpty || r?.isHoliday == true;
+
+      final isOff = r?.isWeekOff == true;
+      final hasShift = (r?.shift?.startTime != null || r?.shift?.endTime != null);
+
+      String subtitle;
       IconData icon;
       Color color;
 
-      if (isHoliday) {
-        // 🎯 FIX: Assuming a field named 'holidayName' exists in the backend data model
-        // that's merged into the EmployeeShiftRoster list.
-        shiftDetails = 'HOLIDAY: ${r.shift ?? r.shift?.shiftLabel ?? 'General Holiday'}';
+      if (hasHoliday) {
+        final names = todaysHolidays.isNotEmpty
+            ? todaysHolidays.map((h) => h.name).toSet().join(', ')
+            : 'Holiday';
         icon = Icons.beach_access_rounded;
         color = Colors.lightGreen;
+        if (isOff) {
+          subtitle = 'Holiday: $names · OFF Day';
+        } else if (hasShift) {
+          final time = _compactTime(r!.shift!.startTime, r.shift!.endTime);
+          final loc = r.shift?.shiftLabel ?? r.shift?.shiftName ?? '';
+          subtitle = 'Holiday: $names${time.trim().isNotEmpty ? " · Shift: $time" : ""}${loc.isNotEmpty ? " | Location: $loc" : ""}';
+        } else {
+          subtitle = 'Holiday: $names';
+        }
       } else if (isOff) {
-        shiftDetails = 'OFF Day - ${r.shift?.shiftLabel ?? 'No Shift'}';
         icon = Icons.calendar_today;
         color = Colors.blueGrey;
+        subtitle = 'OFF Day – ${r?.shift?.shiftLabel ?? 'No Shift'}';
       } else if (hasShift) {
-        final time = _compactTime(r.shift!.startTime, r.shift!.endTime);
-        shiftDetails = 'Shift: $time | Location: ${r.shift?.shiftLabel ?? r.shift?.shiftName}';
         icon = Icons.work;
         color = Colors.blue;
+        final time = _compactTime(r!.shift!.startTime, r.shift!.endTime);
+        final loc = r.shift?.shiftLabel ?? r.shift?.shiftName ?? '';
+        subtitle = 'Shift: $time${loc.isNotEmpty ? " | Location: $loc" : ""}';
       } else {
-        // Day with no shift defined or shift details are incomplete
-        shiftDetails = 'No Shift Scheduled';
         icon = Icons.event_busy;
         color = Colors.orange;
+        subtitle = 'No Shift Scheduled';
       }
 
       return Column(
@@ -366,16 +535,25 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           ListTile(
             leading: Icon(icon, color: color),
             title: Text(date, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(shiftDetails),
+            subtitle: Text(subtitle),
             dense: true,
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Viewing shift details for $date')));
-            },
+            onTap: () {},
           ),
           const Divider(height: 1),
         ],
       );
     }).toList();
+  }
+
+  bool _monthHasNoHolidayKeys() {
+    final start = DateTime(_anchor.year, _anchor.month, 1);
+    final end = DateTime(_anchor.year, _anchor.month + 1, 0);
+    DateTime d = start;
+    while (!d.isAfter(end)) {
+      if (_holidaysByDateKey.containsKey(_dayKey(d))) return false;
+      d = d.add(const Duration(days: 1));
+    }
+    return true;
   }
 
   String _compactTime(String? start, String? end) {
@@ -397,9 +575,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     final end = _endOfPeriod(start);
     final headerLabel = _buildHeaderLabel(start, end);
 
+    final showHolidayFetchNote =
+        _viewMode == ScheduleViewMode.month && _holidaysError != null && _monthHasNoHolidayKeys();
+
     return GradientScaffold(
       title: 'My Schedule',
-      // 🎯 NEW: Trailing row with the toggle button
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -409,8 +589,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 _viewMode = _viewMode == ScheduleViewMode.week
                     ? ScheduleViewMode.month
                     : ScheduleViewMode.week;
-                _loadRoster(); // Reload roster when mode changes
               });
+              _loadRoster();
+              _ensureHolidaysForVisibleYear(_startOfPeriod(_anchor));
             },
             child: Text(
               _viewMode == ScheduleViewMode.week ? 'MONTH VIEW' : 'WEEK VIEW',
@@ -431,7 +612,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 children: [
                   Row(
                     children: [
-                      // 🎯 Period navigation buttons
                       OutlineChip('← Prev', onTap: _prevPeriod),
                       const Spacer(),
                       Flexible(
@@ -440,7 +620,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                             headerLabel,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w800, fontSize: 16),
                           ),
                         ),
                       ),
@@ -449,8 +630,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-
-                  // 🔁 FutureBuilder for the Roster Strip / Month List
                   FutureBuilder<List<EmployeeShiftRoster>>(
                     future: _future,
                     builder: (context, snap) {
@@ -460,35 +639,44 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                       if (snap.hasError) {
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(snap.error.toString()), behavior: SnackBarBehavior.floating),
+                            SnackBar(
+                              content: Text(snap.error.toString()),
+                              behavior: SnackBarBehavior.floating,
+                            ),
                           );
                         });
                         return const SizedBox.shrink();
                       }
 
-                      final roster = snap.data ?? const <EmployeeShiftRoster>[];
+                      final roster =
+                          snap.data ?? const <EmployeeShiftRoster>[];
 
                       if (_viewMode == ScheduleViewMode.week) {
-                        // 1. WEEK VIEW: Show the 7-day strip (existing visualization)
                         final strip = _buildWeekStrip(roster);
                         return WeekStrip(days: strip);
                       } else {
-                        // 2. MONTH VIEW: Show the full list of all shifts in the month
                         final monthListWidgets = _buildMonthList(roster);
-                        // We return a small container with the list, replacing the WeekStrip visually
-                        // NOTE: If the list is empty, show a dedicated message.
-                        if (monthListWidgets.isEmpty || (monthListWidgets.length == 1 && monthListWidgets[0] is Center)) {
-                          return const Padding(padding: EdgeInsets.all(16), child: Center(child: Text('No shift details found for this month.')));
-                        }
-
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Padding(
                               padding: EdgeInsets.only(top: 8.0, bottom: 8.0),
-                              child: Text('Monthly Roster Details:', style: TextStyle(fontWeight: FontWeight.bold)),
+                              child: Text(
+                                'Monthly Roster Details:',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
                             ),
-                            ...monthListWidgets
+                            ...monthListWidgets,
+                            if (showHolidayFetchNote) ...[
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Holidays fetch failed',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.orange,
+                                ),
+                              ),
+                            ],
                           ],
                         );
                       }
@@ -499,7 +687,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             ),
           ),
 
-          // 🔽 Available Shifts and Actions remain unchanged
+          // --- Available Shifts (unchanged) ---
           const SectionHeader('Available Shifts', icon: Icons.work_history),
           ...[
             _AvailShift(
@@ -519,18 +707,30 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   .showSnackBar(const SnackBar(content: Text('Training requested'))),
               secondary: 'Details',
             ),
-          ].map((w) => Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: w)),
+          ].map((w) => Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: w,
+          )),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
             child: Row(
               children: [
-                Expanded(child: ActionBtn.outline('Swap Shifts', () {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Swap flow')));
-                }, context)),
+                Expanded(
+                    child: ActionBtn.outline(
+                        'Swap Shifts',
+                            () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Swap flow')));
+                        },
+                        context)),
                 const SizedBox(width: 8),
-                Expanded(child: ActionBtn.danger('Can\'t Make It', widget.onCantMake)),
+                Expanded(
+                    child: ActionBtn.danger(
+                        'Can\'t Make It', widget.onCantMake)),
                 const SizedBox(width: 8),
-                Expanded(child: ActionBtn.primary('Request Time Off', widget.onRequestTimeOff)),
+                Expanded(
+                    child: ActionBtn.primary(
+                        'Request Time Off', widget.onRequestTimeOff)),
               ],
             ),
           ),
@@ -540,7 +740,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   }
 }
 
-// ----- supporting classes remain unchanged -----
+// ----- supporting classes (unchanged visually/behaviorally) -----
 class _AvailShift extends StatelessWidget {
   final String title;
   final String rate;
@@ -563,13 +763,16 @@ class _AvailShift extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.only(left: 16, right: 16, top: 14, bottom: 14),
+        padding:
+        const EdgeInsets.only(left: 16, right: 16, top: 14, bottom: 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(children: [
-              // FIX: Accessing fields directly
-              Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14))),
+              Expanded(
+                  child: Text(title,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 14))),
               Pill(rate, bg: Colors.green, fg: Colors.white),
             ]),
             const SizedBox(height: 8),
@@ -580,7 +783,8 @@ class _AvailShift extends StatelessWidget {
                   .map((b) => Chip(
                 label: Text(b),
                 visualDensity: VisualDensity.compact,
-                side: const BorderSide(color: Color(0xFFE9ECEF), width: 2),
+                side: const BorderSide(
+                    color: Color(0xFFE9ECEF), width: 2),
               ))
                   .toList(),
             ),
@@ -588,13 +792,11 @@ class _AvailShift extends StatelessWidget {
             Row(
               children: [
                 if (secondary != null)
-                // FIX: Accessing fields directly
                   Expanded(
                       child: ActionBtn.outline(secondary!, () {
-                        ScaffoldMessenger.of(context)
-                            .showSnackBar(const SnackBar(content: Text('Details opened')));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Details opened')));
                       }, context)),
-                // FIX: Accessing fields directly
                 Expanded(child: ActionBtn.primary(primary, onPrimary)),
               ],
             )
@@ -604,6 +806,471 @@ class _AvailShift extends StatelessWidget {
     );
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// import 'package:flutter/material.dart';
+// import 'package:intl/intl.dart';
+//
+// import '../../shared/ui.dart';
+//
+// // ✅ Service + models you added earlier for roster API
+// import '../../data/services/shift_service.dart';
+// import '../../data/models/shift_roster_model.dart';
+//
+// // 🎯 NEW: Enum for view modes
+// enum ScheduleViewMode { week, month }
+//
+// class ScheduleScreen extends StatefulWidget {
+//   final VoidCallback onPickShift;
+//   final VoidCallback onRequestTimeOff;
+//   final VoidCallback onCantMake;
+//
+//   const ScheduleScreen({
+//     super.key,
+//     required this.onPickShift,
+//     required this.onRequestTimeOff,
+//     required this.onCantMake,
+//   });
+//
+//   @override
+//   State<ScheduleScreen> createState() => _ScheduleScreenState();
+// }
+//
+// class _ScheduleScreenState extends State<ScheduleScreen> {
+//   late DateTime _anchor; // any day in the visible period
+//   Future<List<EmployeeShiftRoster>>? _future;
+//
+//   // 🎯 NEW STATE: Track the current view mode (default is week)
+//   ScheduleViewMode _viewMode = ScheduleViewMode.week;
+//
+//   @override
+//   void initState() {
+//     super.initState();
+//     // Initialize anchor to the current date
+//     _anchor = DateTime.now();
+//     _loadRoster();
+//   }
+//
+//   // ---- Date Calculation Helpers ----
+//
+//   // 🎯 Determines the start date of the current period based on view mode
+//   DateTime _startOfPeriod(DateTime d) {
+//     if (_viewMode == ScheduleViewMode.month) {
+//       // Return the first day of the month
+//       return DateTime(d.year, d.month, 1);
+//     }
+//     // Default to Monday start for week view
+//     final wd = d.weekday; // 1..7 (Mon..Sun)
+//     return DateTime(d.year, d.month, d.day).subtract(Duration(days: wd - 1));
+//   }
+//
+//   // 🎯 Calculates the end date of the current period
+//   DateTime _endOfPeriod(DateTime start) {
+//     if (_viewMode == ScheduleViewMode.month) {
+//       // Calculate the last day of the month
+//       return DateTime(start.year, start.month + 1, 0);
+//     }
+//     // Sunday end for week view (6 days after Monday start)
+//     return start.add(const Duration(days: 6));
+//   }
+//
+//   // ---- Loading Logic ----
+//
+//   void _loadRoster() {
+//     final start = _startOfPeriod(_anchor);
+//     final end = _endOfPeriod(start);
+//     setState(() {
+//       // The same API is used, but with monthly start/end dates
+//       _future = ShiftService.instance.getRosterForRange(start: start, end: end);
+//     });
+//   }
+//
+//   // 🎯 NEW: Navigate to the previous period (week or month)
+//   void _prevPeriod() {
+//     setState(() {
+//       if (_viewMode == ScheduleViewMode.month) {
+//         _anchor = DateTime(_anchor.year, _anchor.month - 1, 1);
+//       } else {
+//         _anchor = _anchor.subtract(const Duration(days: 7));
+//       }
+//     });
+//     _loadRoster();
+//   }
+//
+//   // 🎯 NEW: Navigate to the next period (week or month)
+//   void _nextPeriod() {
+//     setState(() {
+//       if (_viewMode == ScheduleViewMode.month) {
+//         _anchor = DateTime(_anchor.year, _anchor.month + 1, 1);
+//       } else {
+//         _anchor = _anchor.add(const Duration(days: 7));
+//       }
+//     });
+//     _loadRoster();
+//   }
+//
+//   // ---- UI Mapping Helpers ----
+//
+//   // 🎯 Helper to build the header label based on view mode
+//   String _buildHeaderLabel(DateTime start, DateTime end) {
+//     if (_viewMode == ScheduleViewMode.month) {
+//       return DateFormat('MMMM yyyy').format(start); // e.g., October 2025
+//     }
+//     // Weekly format
+//     final hdr = '${DateFormat('dd MMM').format(start)} — ${DateFormat('dd MMM yyyy').format(end)}';
+//     return 'Week $hdr';
+//   }
+//
+//   // 🎯 _buildWeekStrip: Used ONLY when in Week View Mode
+//   List<SchedDayData> _buildWeekStrip(List<EmployeeShiftRoster> roster) {
+//     final start = _startOfPeriod(_anchor);
+//
+//     // index roster by date for O(1) lookups
+//     final fmtIso = DateFormat('yyyy-MM-dd');
+//     final byDate = <String, EmployeeShiftRoster>{};
+//     for (final r in roster) {
+//       final k = r.calendarDate;
+//       if (k != null) byDate[k] = r;
+//     }
+//
+//     const weekdayShort = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+//     final days = <SchedDayData>[];
+//
+//     // Iterate over 7 days for the WeekStrip visualization
+//     for (int i = 0; i < 7; i++) {
+//       final day = start.add(Duration(days: i));
+//       final key = fmtIso.format(day);
+//       final r = byDate[key];
+//
+//       final hasShift = (r?.shift?.startTime != null || r?.shift?.endTime != null);
+//       final isOff = r?.isWeekOff == true;
+//       final isHoliday = r?.isHoliday == true;
+//
+//       String time;
+//       if (isHoliday) {
+//         time = 'HOL';
+//       } else if (isOff) {
+//         time = 'OFF';
+//       } else if (hasShift) {
+//         time = _compactTime(r!.shift!.startTime, r.shift!.endTime); // e.g. 08-16
+//       } else {
+//         time = '—';
+//       }
+//
+//       final location = (hasShift ? (r!.shift?.shiftLabel ?? r.shift?.shiftName ?? '') : '');
+//
+//       days.add(
+//         SchedDayData(
+//           // Adjust weekday index (Dart: Mon=1, Sun=7. Array: 0..6)
+//           weekdayShort[(day.weekday - 1) % 7],
+//           DateFormat('d').format(day),
+//           time,
+//           location,
+//           hasShift && !isHoliday && !isOff,
+//         ),
+//       );
+//     }
+//     return days;
+//   }
+//
+//   // 🎯 NEW: Builds the full monthly list of shifts
+//   List<Widget> _buildMonthList(List<EmployeeShiftRoster> roster) {
+//     // Roster items already contain shift details; filter for relevant days
+//
+//     if (roster.isEmpty) {
+//       return [const Padding(padding: EdgeInsets.all(16), child: Center(child: Text('No shifts scheduled this month.')))];
+//     }
+//
+//     // Ensure data is sorted by date
+//     roster.sort((a, b) => (a.calendarDate ?? '').compareTo(b.calendarDate ?? ''));
+//
+//     return roster.map((r) {
+//       final date = r.calendarDate != null ? DateFormat('EEEE, dd MMM').format(DateTime.parse(r.calendarDate!)) : 'Unknown Date';
+//       final hasShift = (r.shift?.startTime != null || r.shift?.endTime != null);
+//       final isOff = r.isWeekOff == true;
+//       final isHoliday = r.isHoliday == true;
+//
+//       String shiftDetails;
+//       IconData icon;
+//       Color color;
+//
+//       if (isHoliday) {
+//         // 🎯 FIX: Assuming a field named 'holidayName' exists in the backend data model
+//         // that's merged into the EmployeeShiftRoster list.
+//         shiftDetails = 'HOLIDAY: ${r.shift ?? r.shift?.shiftLabel ?? 'General Holiday'}';
+//         icon = Icons.beach_access_rounded;
+//         color = Colors.lightGreen;
+//       } else if (isOff) {
+//         shiftDetails = 'OFF Day - ${r.shift?.shiftLabel ?? 'No Shift'}';
+//         icon = Icons.calendar_today;
+//         color = Colors.blueGrey;
+//       } else if (hasShift) {
+//         final time = _compactTime(r.shift!.startTime, r.shift!.endTime);
+//         shiftDetails = 'Shift: $time | Location: ${r.shift?.shiftLabel ?? r.shift?.shiftName}';
+//         icon = Icons.work;
+//         color = Colors.blue;
+//       } else {
+//         // Day with no shift defined or shift details are incomplete
+//         shiftDetails = 'No Shift Scheduled';
+//         icon = Icons.event_busy;
+//         color = Colors.orange;
+//       }
+//
+//       return Column(
+//         children: [
+//           ListTile(
+//             leading: Icon(icon, color: color),
+//             title: Text(date, style: const TextStyle(fontWeight: FontWeight.bold)),
+//             subtitle: Text(shiftDetails),
+//             dense: true,
+//             onTap: () {
+//               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Viewing shift details for $date')));
+//             },
+//           ),
+//           const Divider(height: 1),
+//         ],
+//       );
+//     }).toList();
+//   }
+//
+//   String _compactTime(String? start, String? end) {
+//     String cut(String? hhmm) {
+//       if (hhmm == null || hhmm.isEmpty) return '—';
+//       final parts = hhmm.split(':');
+//       if (parts.length < 2) return hhmm;
+//       final h = parts[0].padLeft(2, '0');
+//       final m = parts[1];
+//       if (m == '00') return h;
+//       return '$h:$m';
+//     }
+//     return '${cut(start)}-${cut(end)}';
+//   }
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     final start = _startOfPeriod(_anchor);
+//     final end = _endOfPeriod(start);
+//     final headerLabel = _buildHeaderLabel(start, end);
+//
+//     return GradientScaffold(
+//       title: 'My Schedule',
+//       // 🎯 NEW: Trailing row with the toggle button
+//       trailing: Row(
+//         mainAxisSize: MainAxisSize.min,
+//         children: [
+//           TextButton(
+//             onPressed: () {
+//               setState(() {
+//                 _viewMode = _viewMode == ScheduleViewMode.week
+//                     ? ScheduleViewMode.month
+//                     : ScheduleViewMode.week;
+//                 _loadRoster(); // Reload roster when mode changes
+//               });
+//             },
+//             child: Text(
+//               _viewMode == ScheduleViewMode.week ? 'MONTH VIEW' : 'WEEK VIEW',
+//               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+//             ),
+//           ),
+//           const Icon(Icons.calendar_today_rounded),
+//         ],
+//       ),
+//       child: ListView(
+//         padding: const EdgeInsets.only(bottom: 24),
+//         children: [
+//           Card(
+//             margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+//             child: Padding(
+//               padding: const EdgeInsets.all(16),
+//               child: Column(
+//                 children: [
+//                   Row(
+//                     children: [
+//                       // 🎯 Period navigation buttons
+//                       OutlineChip('← Prev', onTap: _prevPeriod),
+//                       const Spacer(),
+//                       Flexible(
+//                         child: Center(
+//                           child: Text(
+//                             headerLabel,
+//                             maxLines: 1,
+//                             overflow: TextOverflow.ellipsis,
+//                             style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+//                           ),
+//                         ),
+//                       ),
+//                       const Spacer(),
+//                       OutlineChip('Next →', onTap: _nextPeriod),
+//                     ],
+//                   ),
+//                   const SizedBox(height: 12),
+//
+//                   // 🔁 FutureBuilder for the Roster Strip / Month List
+//                   FutureBuilder<List<EmployeeShiftRoster>>(
+//                     future: _future,
+//                     builder: (context, snap) {
+//                       if (snap.connectionState != ConnectionState.done) {
+//                         return const Center(child: CircularProgressIndicator());
+//                       }
+//                       if (snap.hasError) {
+//                         WidgetsBinding.instance.addPostFrameCallback((_) {
+//                           ScaffoldMessenger.of(context).showSnackBar(
+//                             SnackBar(content: Text(snap.error.toString()), behavior: SnackBarBehavior.floating),
+//                           );
+//                         });
+//                         return const SizedBox.shrink();
+//                       }
+//
+//                       final roster = snap.data ?? const <EmployeeShiftRoster>[];
+//
+//                       if (_viewMode == ScheduleViewMode.week) {
+//                         // 1. WEEK VIEW: Show the 7-day strip (existing visualization)
+//                         final strip = _buildWeekStrip(roster);
+//                         return WeekStrip(days: strip);
+//                       } else {
+//                         // 2. MONTH VIEW: Show the full list of all shifts in the month
+//                         final monthListWidgets = _buildMonthList(roster);
+//                         // We return a small container with the list, replacing the WeekStrip visually
+//                         // NOTE: If the list is empty, show a dedicated message.
+//                         if (monthListWidgets.isEmpty || (monthListWidgets.length == 1 && monthListWidgets[0] is Center)) {
+//                           return const Padding(padding: EdgeInsets.all(16), child: Center(child: Text('No shift details found for this month.')));
+//                         }
+//
+//                         return Column(
+//                           crossAxisAlignment: CrossAxisAlignment.start,
+//                           children: [
+//                             const Padding(
+//                               padding: EdgeInsets.only(top: 8.0, bottom: 8.0),
+//                               child: Text('Monthly Roster Details:', style: TextStyle(fontWeight: FontWeight.bold)),
+//                             ),
+//                             ...monthListWidgets
+//                           ],
+//                         );
+//                       }
+//                     },
+//                   ),
+//                 ],
+//               ),
+//             ),
+//           ),
+//
+//           // 🔽 Available Shifts and Actions remain unchanged
+//           const SectionHeader('Available Shifts', icon: Icons.work_history),
+//           ...[
+//             _AvailShift(
+//               title: 'Sat 21 Sep: 06:00-14:00 (Line B)',
+//               rate: '1.5x Rate',
+//               badges: const ['✓ Qualified', 'Weekend Shift'],
+//               primary: 'Pick Up',
+//               onPrimary: widget.onPickShift,
+//               secondary: 'Details',
+//             ),
+//             _AvailShift(
+//               title: 'Sun 22 Sep: 14:00-22:00 (Line C)',
+//               rate: '2.0x Rate',
+//               badges: const ['⚠ Training Needed', 'Night Shift'],
+//               primary: 'Request Training',
+//               onPrimary: () => ScaffoldMessenger.of(context)
+//                   .showSnackBar(const SnackBar(content: Text('Training requested'))),
+//               secondary: 'Details',
+//             ),
+//           ].map((w) => Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: w)),
+//           Padding(
+//             padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+//             child: Row(
+//               children: [
+//                 Expanded(child: ActionBtn.outline('Swap Shifts', () {
+//                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Swap flow')));
+//                 }, context)),
+//                 const SizedBox(width: 8),
+//                 Expanded(child: ActionBtn.danger('Can\'t Make It', widget.onCantMake)),
+//                 const SizedBox(width: 8),
+//                 Expanded(child: ActionBtn.primary('Request Time Off', widget.onRequestTimeOff)),
+//               ],
+//             ),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+// }
+//
+// // ----- supporting classes remain unchanged -----
+// class _AvailShift extends StatelessWidget {
+//   final String title;
+//   final String rate;
+//   final List<String> badges;
+//   final String primary;
+//   final VoidCallback onPrimary;
+//   final String? secondary;
+//
+//   const _AvailShift({
+//     super.key,
+//     required this.title,
+//     required this.rate,
+//     required this.badges,
+//     required this.primary,
+//     required this.onPrimary,
+//     this.secondary,
+//   });
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     return Card(
+//       child: Padding(
+//         padding: const EdgeInsets.only(left: 16, right: 16, top: 14, bottom: 14),
+//         child: Column(
+//           crossAxisAlignment: CrossAxisAlignment.start,
+//           children: [
+//             Row(children: [
+//               // FIX: Accessing fields directly
+//               Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14))),
+//               Pill(rate, bg: Colors.green, fg: Colors.white),
+//             ]),
+//             const SizedBox(height: 8),
+//             Wrap(
+//               spacing: 6,
+//               runSpacing: -6,
+//               children: badges
+//                   .map((b) => Chip(
+//                 label: Text(b),
+//                 visualDensity: VisualDensity.compact,
+//                 side: const BorderSide(color: Color(0xFFE9ECEF), width: 2),
+//               ))
+//                   .toList(),
+//             ),
+//             const SizedBox(height: 8),
+//             Row(
+//               children: [
+//                 if (secondary != null)
+//                 // FIX: Accessing fields directly
+//                   Expanded(
+//                       child: ActionBtn.outline(secondary!, () {
+//                         ScaffoldMessenger.of(context)
+//                             .showSnackBar(const SnackBar(content: Text('Details opened')));
+//                       }, context)),
+//                 // FIX: Accessing fields directly
+//                 Expanded(child: ActionBtn.primary(primary, onPrimary)),
+//               ],
+//             )
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+// }
 
 
 
