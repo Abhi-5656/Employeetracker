@@ -57,6 +57,12 @@ class Routes {
   static String getReporteePathForDate(String employeeId, String ymd) =>
       '/api/tracking/query/path/for-date/$employeeId?date=$ymd';
 
+
+  static String employeeHolidaysV2(String employeeId) =>
+      '/api/employee/holiday-profile-assignments/employee/$employeeId/holidays';
+
+  // api/employee/holiday-profile-assignments/employee/1032/holidays
+
   /// GET /api/employee/shifts/employee-shift-roster/{employeeId}?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
   // static String employeeShiftRoster(
   //     String employeeId, {

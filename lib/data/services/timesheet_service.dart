@@ -114,22 +114,26 @@
 
 
 
-
 import 'package:intl/intl.dart';
+
 
 import 'auth_service.dart';
 import 'http_client.dart';
 import 'tenant_service.dart';
 
+
 class TimesheetService {
   TimesheetService._();
   static final TimesheetService instance = TimesheetService._();
 
+
   // ✅ CloudFront distribution for timesheets
   static const String _cfBase = 'https://d3hs9u8alp2av.cloudfront.net';
 
+
   String _requireEmployeeId({String? employeeIdOpt}) {
     if (employeeIdOpt != null && employeeIdOpt.isNotEmpty) return employeeIdOpt;
+
 
     final id = AuthService.instance.employeeId ?? SessionController.instance.employeeId;
     if (id == null || id.isEmpty) {
@@ -137,6 +141,7 @@ class TimesheetService {
     }
     return id;
   }
+
 
   /// Build absolute CloudFront URL:
   /// https://d3.../{tenantId}/api/wfm/timesheets/employee/{employeeId}/range?start=YYYY-MM-DD&end=YYYY-MM-DD
@@ -150,6 +155,7 @@ class TimesheetService {
         '?start=$startYmd&end=$endYmd';   // 👈 keys are start/end
   }
 
+
   /// Returns raw rows as a list of maps via CloudFront absolute URL
   Future<List<Map<String, dynamic>>> getRangeRaw({
     required DateTime start,
@@ -158,14 +164,17 @@ class TimesheetService {
   }) async {
     final id = _requireEmployeeId(employeeIdOpt: employeeId);
 
+
     final tenant = TenantService.instance.tenantId;
     if (tenant == null || tenant.isEmpty) {
       throw StateError('Tenant is not configured.');
     }
 
+
     final ymd = DateFormat('yyyy-MM-dd');
     final startYmd = ymd.format(start);
     final endYmd   = ymd.format(end);
+
 
     // ✅ Absolute URL (ApiClient will NOT prepend ALB base)
     final absoluteUrl = _cfTimesheetRangeUrl(
@@ -175,7 +184,9 @@ class TimesheetService {
       endYmd: endYmd,
     );
 
+
     final list = await ApiClient.instance.getList(absoluteUrl);
+
 
     return list.map<Map<String, dynamic>>((e) {
       if (e is Map<String, dynamic>) return e;
@@ -183,12 +194,14 @@ class TimesheetService {
     }).toList();
   }
 
+
   Future<List<Map<String, dynamic>>> getMyTimesheet({
     required DateTime start,
     required DateTime end,
   }) {
     return getRangeRaw(start: start, end: end);
   }
+
 
   Future<List<Map<String, dynamic>>> getRangeThisWeekRaw({String? employeeId}) {
     final now = DateTime.now();
@@ -198,3 +211,4 @@ class TimesheetService {
     return getRangeRaw(start: start, end: end, employeeId: employeeId);
   }
 }
+
