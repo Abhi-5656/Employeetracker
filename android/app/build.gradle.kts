@@ -1,19 +1,21 @@
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
     namespace = "com.example.kiosk"
     compileSdk = flutter.compileSdkVersion
-//    ndkVersion = flutter.ndkVersion
-// 🎯 FIX 1: Add the NDK version suggested by the log
+    // ndkVersion = flutter.ndkVersion
+    // 🎯 FIX 1: Add the NDK version suggested by the log
     ndkVersion = "28.1.13356709"
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // 👇 FIX 2: Enable Core Library Desugaring
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -21,19 +23,18 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.kiosk"
-//        minSdk = flutter.minSdkVersion
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // 👇 Optional: MultiDex is often needed with desugaring if your app is large,
+        // but try without it first. If you get a MultiDex error, uncomment this:
+        // multiDexEnabled = true
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -41,4 +42,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+// 👇 FIX 3: Add the dependencies block for the desugar library
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }

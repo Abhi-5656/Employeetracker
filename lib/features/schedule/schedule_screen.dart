@@ -806,8 +806,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                         final strip = _buildWeekStrip(roster);
                         return WeekStrip(days: strip);
                       } else {
-                        // Replace the content inside this else block
+                        // NEW CODE:
                         return _buildMonthCalendar(roster);
+                        // ---------------- CHANGE ENDS HERE ----------------
                         // final monthListWidgets = _buildMonthList(roster);
                         // return Column(
                         //   crossAxisAlignment: CrossAxisAlignment.start,

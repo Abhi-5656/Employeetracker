@@ -1,38 +1,4 @@
-// // lib/data/services/tenant_service.dart
-// import 'package:flutter/foundation.dart';
-//
-// class TenantService {
-//   TenantService._();
-//   static final TenantService instance = TenantService._();
-//
-//   /// Reactive tenant id expected by old code: tenantController.tenantId.value
-//   final ValueNotifier<String?> tenantId = ValueNotifier<String?>(null);
-//
-//   /// Load persisted tenant if you store it (no-op here).
-//   Future<void> init() async {
-//     // TODO: SharedPreferences/SecureStorage load if needed, then:
-//     // tenantId.value = loadedTenantId;
-//   }
-//
-//   /// Old code may call this in async style.
-//   Future<void> setTenantId(String v) async {
-//     tenantId.value = v.trim();
-//     // TODO: persist if desired
-//   }
-//
-//   /// Newer, simple getters (keep these too).
-//   String? get tenantIdOrNull => tenantId.value;
-//   String get tenant {
-//     final t = tenantId.value;
-//     if (t == null || t.isEmpty) {
-//       throw StateError('Tenant not set');
-//     }
-//     return t;
-//   }
-// }
-//
-// /// Back-compat alias so app.dart can keep using `tenantController`
-// final TenantService tenantController = TenantService.instance;
+// lib/data/services/tenant_service.dart
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -71,6 +37,11 @@ class TenantService {
     await prefs.setString(_kKeyTenantId, t);
   }
 
+  // 👇 ADD THIS METHOD FOR BACKGROUND SERVICE
+  void setTenantManual(String tenant) {
+    _tenantId.value = tenant;
+  }
+
   /// Optional: clear tenant (e.g., full sign-out)
   Future<void> clearTenant() async {
     final prefs = await SharedPreferences.getInstance();
@@ -78,4 +49,3 @@ class TenantService {
     await prefs.remove(_kKeyTenantId);
   }
 }
-

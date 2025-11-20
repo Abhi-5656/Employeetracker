@@ -10,7 +10,9 @@
         "camera",
         "connectivity_plus",
         "flutter",
+        "flutter_background_service",
         "flutter_dotenv",
+        "flutter_local_notifications",
         "flutter_secure_storage",
         "geolocator",
         "google_fonts",
@@ -150,6 +152,27 @@
         "flutter",
         "http",
         "path_provider"
+      ]
+    },
+    {
+      "name": "flutter_local_notifications",
+      "version": "17.2.4",
+      "dependencies": [
+        "clock",
+        "flutter",
+        "flutter_local_notifications_linux",
+        "flutter_local_notifications_platform_interface",
+        "timezone"
+      ]
+    },
+    {
+      "name": "flutter_background_service",
+      "version": "5.1.0",
+      "dependencies": [
+        "flutter",
+        "flutter_background_service_android",
+        "flutter_background_service_ios",
+        "flutter_background_service_platform_interface"
       ]
     },
     {
@@ -559,6 +582,58 @@
       ]
     },
     {
+      "name": "timezone",
+      "version": "0.9.4",
+      "dependencies": [
+        "path"
+      ]
+    },
+    {
+      "name": "flutter_local_notifications_platform_interface",
+      "version": "7.2.0",
+      "dependencies": [
+        "flutter",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "flutter_local_notifications_linux",
+      "version": "4.0.1",
+      "dependencies": [
+        "dbus",
+        "ffi",
+        "flutter",
+        "flutter_local_notifications_platform_interface",
+        "path",
+        "xdg_directories"
+      ]
+    },
+    {
+      "name": "flutter_background_service_ios",
+      "version": "5.0.3",
+      "dependencies": [
+        "flutter",
+        "flutter_background_service_platform_interface"
+      ]
+    },
+    {
+      "name": "flutter_background_service_android",
+      "version": "6.3.1",
+      "dependencies": [
+        "flutter",
+        "flutter_background_service_platform_interface"
+      ]
+    },
+    {
+      "name": "flutter_background_service_platform_interface",
+      "version": "5.1.2",
+      "dependencies": [
+        "flutter",
+        "platform",
+        "plugin_platform_interface"
+      ]
+    },
+    {
       "name": "geolocator_windows",
       "version": "0.2.5",
       "dependencies": [
@@ -848,6 +923,16 @@
       ]
     },
     {
+      "name": "dbus",
+      "version": "0.7.11",
+      "dependencies": [
+        "args",
+        "ffi",
+        "meta",
+        "xml"
+      ]
+    },
+    {
       "name": "uuid",
       "version": "4.5.1",
       "dependencies": [
@@ -871,18 +956,13 @@
       ]
     },
     {
-      "name": "dbus",
-      "version": "0.7.11",
-      "dependencies": [
-        "args",
-        "ffi",
-        "meta",
-        "xml"
-      ]
-    },
-    {
       "name": "vm_service",
       "version": "15.0.2",
+      "dependencies": []
+    },
+    {
+      "name": "args",
+      "version": "2.7.0",
       "dependencies": []
     },
     {
@@ -893,11 +973,6 @@
     {
       "name": "sprintf",
       "version": "7.0.0",
-      "dependencies": []
-    },
-    {
-      "name": "args",
-      "version": "2.7.0",
       "dependencies": []
     }
   ],
