@@ -568,6 +568,11 @@ class _RootShellState extends State<RootShell> {
                 selectedIndex: _index,
                 height: 72,
                 onDestinationSelected: (i) {
+                  // 🎯 NEW: If navigating to Schedule tab (index 2), force a reset of its Navigator.
+                  // This ensures ScheduleScreen starts fresh (default 'Week' view) every time the user visits it.
+                  if (i == 2) {
+                    _navigatorKeys[2] = GlobalKey<NavigatorState>();
+                  }
                   setState(() => _index = i);
                 },
                 destinations: [

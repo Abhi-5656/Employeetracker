@@ -568,6 +568,157 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
     return '${cut(start)}-${cut(end)}';
   }
+  // 🎯 NEW: Helper to build the Calendar Grid for Month View
+  Widget _buildMonthCalendar(List<EmployeeShiftRoster> roster) {
+    final startOfMonth = DateTime(_anchor.year, _anchor.month, 1);
+    final daysInMonth = DateTime(_anchor.year, _anchor.month + 1, 0).day;
+
+    // Determine starting offset (Mon=0, Tue=1, etc.)
+    // We assume Monday start to match your Week View.
+    // weekday returns 1(Mon)..7(Sun). We convert to 0..6.
+    final firstWeekday = startOfMonth.weekday;
+    final startingOffset = firstWeekday - 1;
+
+    // Map roster for O(1) lookup
+    final Map<String, EmployeeShiftRoster> rosterMap = {};
+    for (final r in roster) {
+      if (r.calendarDate != null) rosterMap[r.calendarDate!] = r;
+    }
+
+    final List<String> weekHeaders = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+    return Column(
+      children: [
+        // 1. Weekday Headers
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: weekHeaders.map((e) => Expanded(
+              child: Text(e,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)
+              ),
+            )).toList(),
+          ),
+        ),
+
+        // 2. The Calendar Grid
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: daysInMonth + startingOffset,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 7,
+            childAspectRatio: 0.8, // Adjust height of cells
+            crossAxisSpacing: 4,
+            mainAxisSpacing: 4,
+          ),
+          itemBuilder: (context, index) {
+            // Empty cells before the 1st of the month
+            if (index < startingOffset) {
+              return const SizedBox.shrink();
+            }
+
+            final dayNum = index - startingOffset + 1;
+            final date = DateTime(_anchor.year, _anchor.month, dayNum);
+            final dateKey = DateFormat('yyyy-MM-dd').format(date);
+
+            final rosterItem = rosterMap[dateKey];
+            final holidays = _holidaysByDateKey[dateKey] ?? [];
+
+            return _buildCalendarCell(dayNum, rosterItem, holidays);
+          },
+        ),
+
+        // 3. Holiday Warning (Keep existing logic)
+        if (_monthHasNoHolidayKeys() && _holidaysError != null)
+          const Padding(
+            padding: EdgeInsets.all(8.0),
+            child: Text('Holidays fetch failed', style: TextStyle(color: Colors.orange, fontSize: 12)),
+          ),
+      ],
+    );
+  }
+
+  // 🎯 NEW: Helper to build individual Calendar Cell
+  Widget _buildCalendarCell(int dayNum, EmployeeShiftRoster? r, List<Holiday> holidays) {
+    final isHoliday = (r?.isHoliday == true) || holidays.isNotEmpty;
+    final isOff = r?.isWeekOff == true;
+    final hasShift = (r?.shift?.startTime != null || r?.shift?.endTime != null);
+
+    Color bgColor = Colors.white;
+    Color textColor = Colors.black87;
+    String? infoText;
+    Color statusColor = Colors.transparent;
+
+    if (isHoliday) {
+      bgColor = const Color(0xFFE8F5E9); // Light Green
+      statusColor = Colors.green;
+      infoText = "HOL";
+    } else if (isOff) {
+      bgColor = const Color(0xFFF5F5F5); // Light Grey
+      infoText = "OFF";
+    } else if (hasShift) {
+      bgColor = const Color(0xFFE3F2FD); // Light Blue
+      statusColor = Colors.blue;
+      // Format: 08:00
+      final start = r?.shift?.startTime?.split(':').take(2).join(':') ?? '';
+      infoText = start;
+    }
+
+    return InkWell(
+      onTap: () {
+        // Optional: Show details in snackbar or bottom sheet
+        if (r != null) {
+          final details = isHoliday ? 'Holiday' : (hasShift ? '${r.shift?.startTime}-${r.shift?.endTime}' : 'No Shift');
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Day $dayNum: $details'),
+            duration: const Duration(seconds: 1),
+            behavior: SnackBarBehavior.floating,
+          ));
+        }
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.withOpacity(0.2)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              '$dayNum',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: isOff ? Colors.grey : Colors.black,
+              ),
+            ),
+            const SizedBox(height: 4),
+            if (infoText != null)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: BoxDecoration(
+                  color: statusColor == Colors.transparent ? Colors.grey[300] : statusColor,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  infoText,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: statusColor == Colors.transparent ? Colors.black54 : Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -655,30 +806,32 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                         final strip = _buildWeekStrip(roster);
                         return WeekStrip(days: strip);
                       } else {
-                        final monthListWidgets = _buildMonthList(roster);
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Padding(
-                              padding: EdgeInsets.only(top: 8.0, bottom: 8.0),
-                              child: Text(
-                                'Monthly Roster Details:',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                            ...monthListWidgets,
-                            if (showHolidayFetchNote) ...[
-                              const SizedBox(height: 8),
-                              const Text(
-                                'Holidays fetch failed',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.orange,
-                                ),
-                              ),
-                            ],
-                          ],
-                        );
+                        // Replace the content inside this else block
+                        return _buildMonthCalendar(roster);
+                        // final monthListWidgets = _buildMonthList(roster);
+                        // return Column(
+                        //   crossAxisAlignment: CrossAxisAlignment.start,
+                        //   children: [
+                        //     const Padding(
+                        //       padding: EdgeInsets.only(top: 8.0, bottom: 8.0),
+                        //       child: Text(
+                        //         'Monthly Roster Details:',
+                        //         style: TextStyle(fontWeight: FontWeight.bold),
+                        //       ),
+                        //     ),
+                        //     ...monthListWidgets,
+                        //     if (showHolidayFetchNote) ...[
+                        //       const SizedBox(height: 8),
+                        //       const Text(
+                        //         'Holidays fetch failed',
+                        //         style: TextStyle(
+                        //           fontSize: 12,
+                        //           color: Colors.orange,
+                        //         ),
+                        //       ),
+                        //     ],
+                        //   ],
+                        // );
                       }
                     },
                   ),
