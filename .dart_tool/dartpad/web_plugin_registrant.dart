@@ -8,8 +8,10 @@
 
 import 'package:camera_web/camera_web.dart';
 import 'package:connectivity_plus/src/connectivity_plus_web.dart';
+import 'package:flutter_image_compress_web/flutter_image_compress_web.dart';
 import 'package:flutter_secure_storage_web/flutter_secure_storage_web.dart';
 import 'package:geolocator_web/geolocator_web.dart';
+import 'package:image_picker_for_web/image_picker_for_web.dart';
 import 'package:maplibre_gl_web/maplibre_gl_web.dart';
 import 'package:shared_preferences_web/shared_preferences_web.dart';
 import 'package:flutter_web_plugins/flutter_web_plugins.dart';
@@ -18,8 +20,10 @@ void registerPlugins([final Registrar? pluginRegistrar]) {
   final Registrar registrar = pluginRegistrar ?? webPluginRegistrar;
   CameraPlugin.registerWith(registrar);
   ConnectivityPlusWebPlugin.registerWith(registrar);
+  FlutterImageCompressWeb.registerWith(registrar);
   FlutterSecureStorageWeb.registerWith(registrar);
   GeolocatorPlugin.registerWith(registrar);
+  ImagePickerPlugin.registerWith(registrar);
   MapLibreMapPlugin.registerWith(registrar);
   SharedPreferencesPlugin.registerWith(registrar);
   registrar.registerMessageHandler();

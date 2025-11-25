@@ -35,7 +35,7 @@ class Routes {
   static String get applyLeave => '/api/leave-requests/apply';
 
   static String timesheetsRange(String employeeId, String startYmd, String endYmd) =>
-      '/api/wfm/timesheets/employee/$employeeId/range?startDate=$startYmd&endDate=$endYmd';
+      '/api/wfm/timesheets/employee/$employeeId/range?start=$startYmd&end=$endYmd';
 
   // ⭐ NEW LOCATION TRACKING ROUTE
   static String get trackLocation => '/api/wfm/location/track';
@@ -60,6 +60,10 @@ class Routes {
 
   static String employeeHolidaysV2(String employeeId) =>
       '/api/employee/holiday-profile-assignments/employee/$employeeId/holidays';
+
+// 📸 Visit Proof Routes
+  static String get submitVisitProof => '/api/visits';
+  static String get teamVisitProofs => '/api/visits/team';
 
   // api/employee/holiday-profile-assignments/employee/1032/holidays
 

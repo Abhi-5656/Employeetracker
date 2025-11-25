@@ -52,6 +52,9 @@ dependencies:
   flutter_secure_storage: ^9.2.4
   # 👇 ADD THIS LINE
   maplibre_gl: 0.22.0 # Using a modern, stable version
+  image_picker: ^1.0.7
+  flutter_image_compress: ^2.1.0
+  http: ^1.2.0 # Ensure you have http
 
 dev_dependencies:
   flutter_test:

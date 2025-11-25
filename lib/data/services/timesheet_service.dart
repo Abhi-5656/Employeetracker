@@ -113,50 +113,128 @@
 
 
 
-
+//
+// import 'package:intl/intl.dart';
+//
+//
+// import 'auth_service.dart';
+// import 'http_client.dart';
+// import 'tenant_service.dart';
+//
+//
+// class TimesheetService {
+//   TimesheetService._();
+//   static final TimesheetService instance = TimesheetService._();
+//
+//
+//   // ✅ CloudFront distribution for timesheets
+//   static const String _cfBase = 'https://d3hs9u8alp2av.cloudfront.net';
+//
+//
+//   String _requireEmployeeId({String? employeeIdOpt}) {
+//     if (employeeIdOpt != null && employeeIdOpt.isNotEmpty) return employeeIdOpt;
+//
+//
+//     final id = AuthService.instance.employeeId ?? SessionController.instance.employeeId;
+//     if (id == null || id.isEmpty) {
+//       throw StateError('Not signed in: employeeId not available.');
+//     }
+//     return id;
+//   }
+//
+//
+//   /// Build absolute CloudFront URL:
+//   /// https://d3.../{tenantId}/api/wfm/timesheets/employee/{employeeId}/range?start=YYYY-MM-DD&end=YYYY-MM-DD
+//   String _cfTimesheetRangeUrl({
+//     required String tenantId,
+//     required String employeeId,
+//     required String startYmd,
+//     required String endYmd,
+//   }) {
+//     return '$_cfBase/$tenantId/api/wfm/timesheets/employee/$employeeId/range'
+//         '?start=$startYmd&end=$endYmd';   // 👈 keys are start/end
+//   }
+//
+//
+//   /// Returns raw rows as a list of maps via CloudFront absolute URL
+//   Future<List<Map<String, dynamic>>> getRangeRaw({
+//     required DateTime start,
+//     required DateTime end,
+//     String? employeeId,
+//   }) async {
+//     final id = _requireEmployeeId(employeeIdOpt: employeeId);
+//
+//
+//     final tenant = TenantService.instance.tenantId;
+//     if (tenant == null || tenant.isEmpty) {
+//       throw StateError('Tenant is not configured.');
+//     }
+//
+//
+//     final ymd = DateFormat('yyyy-MM-dd');
+//     final startYmd = ymd.format(start);
+//     final endYmd   = ymd.format(end);
+//
+//
+//     // ✅ Absolute URL (ApiClient will NOT prepend ALB base)
+//     final absoluteUrl = _cfTimesheetRangeUrl(
+//       tenantId: tenant,
+//       employeeId: id,
+//       startYmd: startYmd,
+//       endYmd: endYmd,
+//     );
+//
+//
+//     final list = await ApiClient.instance.getList(absoluteUrl);
+//
+//
+//     return list.map<Map<String, dynamic>>((e) {
+//       if (e is Map<String, dynamic>) return e;
+//       return Map<String, dynamic>.from(e as Map);
+//     }).toList();
+//   }
+//
+//
+//   Future<List<Map<String, dynamic>>> getMyTimesheet({
+//     required DateTime start,
+//     required DateTime end,
+//   }) {
+//     return getRangeRaw(start: start, end: end);
+//   }
+//
+//
+//   Future<List<Map<String, dynamic>>> getRangeThisWeekRaw({String? employeeId}) {
+//     final now = DateTime.now();
+//     final monday = now.subtract(Duration(days: now.weekday - DateTime.monday));
+//     final start = DateTime(monday.year, monday.month, monday.day);
+//     final end   = start.add(const Duration(days: 6));
+//     return getRangeRaw(start: start, end: end, employeeId: employeeId);
+//   }
+// }
+//
 import 'package:intl/intl.dart';
-
 
 import 'auth_service.dart';
 import 'http_client.dart';
-import 'tenant_service.dart';
-
+import 'routes.dart'; // 👈 Ensure Routes is imported
 
 class TimesheetService {
   TimesheetService._();
   static final TimesheetService instance = TimesheetService._();
 
-
-  // ✅ CloudFront distribution for timesheets
-  static const String _cfBase = 'https://d3hs9u8alp2av.cloudfront.net';
-
-
   String _requireEmployeeId({String? employeeIdOpt}) {
     if (employeeIdOpt != null && employeeIdOpt.isNotEmpty) return employeeIdOpt;
 
-
-    final id = AuthService.instance.employeeId ?? SessionController.instance.employeeId;
+    // Check AuthService (and SessionController if you use it)
+    final id = AuthService.instance.employeeId;
     if (id == null || id.isEmpty) {
       throw StateError('Not signed in: employeeId not available.');
     }
     return id;
   }
 
-
-  /// Build absolute CloudFront URL:
-  /// https://d3.../{tenantId}/api/wfm/timesheets/employee/{employeeId}/range?start=YYYY-MM-DD&end=YYYY-MM-DD
-  String _cfTimesheetRangeUrl({
-    required String tenantId,
-    required String employeeId,
-    required String startYmd,
-    required String endYmd,
-  }) {
-    return '$_cfBase/$tenantId/api/wfm/timesheets/employee/$employeeId/range'
-        '?start=$startYmd&end=$endYmd';   // 👈 keys are start/end
-  }
-
-
-  /// Returns raw rows as a list of maps via CloudFront absolute URL
+  /// Returns raw rows as a list of maps
+  /// Uses ApiClient to fetch data, which respects the EnvConfig baseUrl.
   Future<List<Map<String, dynamic>>> getRangeRaw({
     required DateTime start,
     required DateTime end,
@@ -164,36 +242,24 @@ class TimesheetService {
   }) async {
     final id = _requireEmployeeId(employeeIdOpt: employeeId);
 
-
-    final tenant = TenantService.instance.tenantId;
-    if (tenant == null || tenant.isEmpty) {
-      throw StateError('Tenant is not configured.');
-    }
-
-
     final ymd = DateFormat('yyyy-MM-dd');
     final startYmd = ymd.format(start);
     final endYmd   = ymd.format(end);
 
+    // 1. Get the relative path from Routes
+    //    (e.g., "/api/wfm/timesheets/employee/123/range?start=...&end=...")
+    final path = Routes.timesheetsRange(id, startYmd, endYmd);
 
-    // ✅ Absolute URL (ApiClient will NOT prepend ALB base)
-    final absoluteUrl = _cfTimesheetRangeUrl(
-      tenantId: tenant,
-      employeeId: id,
-      startYmd: startYmd,
-      endYmd: endYmd,
-    );
-
-
-    final list = await ApiClient.instance.getList(absoluteUrl);
-
+    // 2. Call ApiClient
+    //    It automatically prepends EnvConfig.baseUrl (http://172.29.128.1:8080)
+    //    and adds the Authorization/Tenant headers.
+    final list = await ApiClient.instance.getList(path);
 
     return list.map<Map<String, dynamic>>((e) {
       if (e is Map<String, dynamic>) return e;
       return Map<String, dynamic>.from(e as Map);
     }).toList();
   }
-
 
   Future<List<Map<String, dynamic>>> getMyTimesheet({
     required DateTime start,
@@ -202,13 +268,13 @@ class TimesheetService {
     return getRangeRaw(start: start, end: end);
   }
 
-
   Future<List<Map<String, dynamic>>> getRangeThisWeekRaw({String? employeeId}) {
     final now = DateTime.now();
+    // Calculate Monday of the current week
     final monday = now.subtract(Duration(days: now.weekday - DateTime.monday));
     final start = DateTime(monday.year, monday.month, monday.day);
     final end   = start.add(const Duration(days: 6));
+
     return getRangeRaw(start: start, end: end, employeeId: employeeId);
   }
 }
-

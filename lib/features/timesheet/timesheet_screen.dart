@@ -577,14 +577,14 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-
 // services
 import '../../data/services/auth_service.dart';
 import '../../data/services/timesheet_service.dart';
 import '../../data/services/dashboard_service.dart';
+import '../../data/services/shift_service.dart'; // 👈 Ensure this exists
 import '../../data/models/attendance_timesheet_model.dart';
+import '../../data/models/shift_roster_model.dart'; // 👈 Ensure this exists
 import '../../shared/ui.dart';
-
 
 // 🎯 DTO for Dynamic Punch Display
 class PunchEventDetail {
@@ -592,12 +592,10 @@ class PunchEventDetail {
   final String time;
   final String dateKey;
 
-
   PunchEventDetail({required this.type, required this.time, required this.dateKey});
 }
 
-
-// 🎯 NEW: Helper DTO for Pill Data
+// 🎯 Helper DTO for Pill Data
 class _PillData {
   final String label;
   final Color bg;
@@ -605,148 +603,133 @@ class _PillData {
   const _PillData(this.label, this.bg, this.fg);
 }
 
-
-
-
 class TimesheetScreen extends StatefulWidget {
   final VoidCallback onSaveDraft;
   final VoidCallback onSubmitWeek;
   const TimesheetScreen({super.key, required this.onSaveDraft, required this.onSubmitWeek});
 
-
   @override
   State<TimesheetScreen> createState() => _TimesheetScreenState();
 }
 
-
 class _TimesheetScreenState extends State<TimesheetScreen>
     with AutomaticKeepAliveClientMixin<TimesheetScreen>
 {
-
-
-  // State variables for displaying summary data (from new API)
+  // State variables for displaying summary data
   String _yesterdayStr = '—';
   String _thisWeekStr  = '—';
   int _exceptionsCount = 0;
-  AttendanceTimesheetData? _summaryData; // Stores the full API summary
-
+  AttendanceTimesheetData? _summaryData;
 
   Future<void>? _loadFuture;
 
+  // State variables for timesheet grid/detail
+  List<_DayCell>? _cells;
 
-  // State variables for timesheet grid/detail (from old API for punches)
-  List<_DayCell>? _cells; // null while loading
-
-
-  // 🎯 FIX: Remove 'late' initializer and make them nullable or initialize with dummy values
   late DateTime _currentWeekStart;
-  late DateTime _weekEndSat; // Calculated from _currentWeekStart
+  late DateTime _weekEndSat;
 
+  final Map<String, List<Map<String, dynamic>>> _rowsByDate = {};
 
-  final Map<String, List<Map<String, dynamic>>> _rowsByDate = {}; // rows grouped by 'yyyy-MM-dd'
+  // 🎯 Store Roster Data to display Schedule
+  final Map<String, EmployeeShiftRoster> _rosterByDate = {};
+
   late DateTime _selectedDate;
 
-
-  // 🎯 NEW STATE: Total minutes calculated for each day (yyyy-MM-dd -> minutes)
+  // Total minutes calculated for each day
   final Map<String, int> _minutesByDate = {};
 
-
-  // Required mixin getter
   @override
   bool get wantKeepAlive => true;
 
-
   // ---------- initialization and loading ----------
-
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
 
-
-    // 🎯 FIX: Initialize all late variables IMMEDIATELY and correctly inside initState
     final daysFromSunday = now.weekday % 7;
     _currentWeekStart = DateTime(now.year, now.month, now.day)
         .subtract(Duration(days: daysFromSunday));
     _weekEndSat = _currentWeekStart.add(const Duration(days: 6));
 
-
     _selectedDate = now.isBefore(_currentWeekStart)
         ? _currentWeekStart
         : (now.isAfter(_weekEndSat) ? _weekEndSat : now);
 
-
     _loadFuture = _loadAllTimesheetData();
   }
 
-
-  // 🎯 Master Loader combines both API calls
   Future<void> _loadAllTimesheetData() async {
-    // Reset display data and start loading indicators
+    // Reset display data
     setState(() {
       _cells = null;
       _rowsByDate.clear();
+      _rosterByDate.clear();
       _yesterdayStr = '—';
       _thisWeekStr = '—';
       _exceptionsCount = 0;
       _summaryData = null;
-      _minutesByDate.clear(); // 🎯 Clear new state map
+      _minutesByDate.clear();
     });
-
 
     try {
       final empId = AuthService.instance.employeeId;
       if (empId == null || empId.isEmpty) {
-        setState(() => _cells = _buildPlaceholderCells());
+        // 🎯 If no user, show empty cells for the ACTUAL week, not static 15-21
+        setState(() => _cells = _buildEmptyCellsForWeek(_currentWeekStart));
         return;
       }
 
-
-      // Calculate the end date for the CURRENTLY VIEWED week
       final currentWeekEnd = _currentWeekStart.add(const Duration(days: 6));
       final systemWeekStart = _getSystemWeekStart();
 
+      // 1. Fetch Summary Data
+      try {
+        if (_isSameDay(_currentWeekStart, systemWeekStart)) {
+          final summary = await DashboardService.instance.getAttendanceTimesheetData();
+          final yesterday = DateTime.now().subtract(const Duration(days: 1));
+          final yDayAbbrev = DateFormat('E').format(yesterday);
 
-      // 1. Fetch Summary Data (Dashboard API only fetches current week's metrics)
-      if (_isSameDay(_currentWeekStart, systemWeekStart)) {
-        final summary = await DashboardService.instance.getAttendanceTimesheetData();
-        final yesterday = DateTime.now().subtract(const Duration(days: 1));
-        final yDayAbbrev = DateFormat('E').format(yesterday);
+          final yDailyHour = summary.dailyHours.firstWhere(
+                (dh) => dh.day == yDayAbbrev,
+            orElse: () => DailyHour(day: yDayAbbrev, hours: 0.0),
+          );
 
+          final totalWeekMinutes = summary.dailyHours.fold<int>(0, (sum, dh) => sum + dh.totalMinutes);
 
-        final yDailyHour = summary.dailyHours.firstWhere(
-              (dh) => dh.day == yDayAbbrev,
-          orElse: () => DailyHour(day: yDayAbbrev, hours: 0.0),
-        );
-
-
-        final totalWeekMinutes = summary.dailyHours.fold<int>(0, (sum, dh) => sum + dh.totalMinutes);
-
-
-        _yesterdayStr = _fmtHrsMins(yDailyHour.totalMinutes);
-        _thisWeekStr  = _fmtHrsMins(totalWeekMinutes);
-        _exceptionsCount = summary.anomaly != null ? 1 : 0;
-        _summaryData = summary;
-      } else {
-        // Clear static summary cards for historical/future weeks
-        _yesterdayStr = '—';
-        _thisWeekStr = '—';
-        _exceptionsCount = 0;
-        _summaryData = null;
+          _yesterdayStr = _fmtHrsMins(yDailyHour.totalMinutes);
+          _thisWeekStr  = _fmtHrsMins(totalWeekMinutes);
+          _exceptionsCount = summary.anomaly != null ? 1 : 0;
+          _summaryData = summary;
+        }
+      } catch (e) {
+        debugPrint('⚠️ Dashboard summary failed (non-critical): $e');
       }
 
-
-      // 2. Fetch Timesheet Grid Data (Raw data for detail panel for the SELECTED WEEK)
+      // 2. Fetch Timesheet Grid Data (Critical)
       final rows = await TimesheetService.instance.getRangeRaw(
-        start: _currentWeekStart, // Use current week state
-        end: currentWeekEnd,      // Use current week end state
+        start: _currentWeekStart,
+        end: currentWeekEnd,
       );
 
+      // 3. 🎯 Fetch Shift Roster Data (For Schedule Times)
+      try {
+        final rosterList = await ShiftService.instance.getRosterForRange(
+          start: _currentWeekStart,
+          end: currentWeekEnd,
+        );
+        for (final r in rosterList) {
+          if (r.calendarDate != null) {
+            _rosterByDate[r.calendarDate!] = r;
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ Failed to load shift roster: $e');
+      }
 
       // --- Process Grid Data ---
-
-
       String? _keyOf(Map<String, dynamic> row) {
         for (final k in const ['date', 'workDate', 'calendarDate', 'day', 'forDate']) {
           final v = row[k];
@@ -763,14 +746,12 @@ class _TimesheetScreenState extends State<TimesheetScreen>
         return null;
       }
 
-
       for (final r in rows) {
         if (r is! Map<String, dynamic>) continue;
         final key = _keyOf(r);
         if (key == null) continue;
         (_rowsByDate[key] ??= <Map<String, dynamic>>[]).add(r);
       }
-
 
       final Map<String, int> minutesByDateLocal = {
         for (int i = 0; i < 7; i++)
@@ -782,8 +763,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
         }
       });
 
-
-      // Build grid cells
       final newCells = <_DayCell>[];
       final today = DateTime.now();
       for (int i = 0; i < 7; i++) {
@@ -792,7 +771,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
         final dateStr   = DateFormat('d').format(d);
         final mins = minutesByDateLocal[DateFormat('yyyy-MM-dd').format(d)] ?? 0;
         final isSameDay = _isSameDay(d, today);
-
 
         String hoursLabel;
         DayState state;
@@ -809,51 +787,40 @@ class _TimesheetScreenState extends State<TimesheetScreen>
         newCells.add(_DayCell(dayAbbrev, dateStr, hoursLabel, state));
       }
 
-
       if (!mounted) return;
       setState(() {
         _cells = newCells;
-        _minutesByDate.clear(); // Clear before adding new week's data
-        _minutesByDate.addAll(minutesByDateLocal); // 🎯 STORE calculated minutes in state
+        _minutesByDate.clear();
+        _minutesByDate.addAll(minutesByDateLocal);
       });
-
 
     } catch (e) {
+      // 🛑 THIS IS WHY YOU SAW STATIC DATA
+      // An error occurred, so we printed it and generated empty cells for the CURRENT week
+      print('🔴 Error loading timesheet data: $e');
+
       if (!mounted) return;
       setState(() {
-        _cells = _buildPlaceholderCells();
+        // 🎯 FIX: Use dynamic empty cells for the selected week, not hardcoded 15-21
+        _cells = _buildEmptyCellsForWeek(_currentWeekStart);
         _yesterdayStr = 'Error';
-        _thisWeekStr = 'Error';
+        _thisWeekStr  = 'Error';
       });
-      print('Error loading all timesheet data: $e');
     }
   }
 
-
-  // 🎯 NEW: Helper to get the start of the week for the system date
   DateTime _getSystemWeekStart() {
     final now = DateTime.now();
     final daysFromSunday = now.weekday % 7;
     return DateTime(now.year, now.month, now.day).subtract(Duration(days: daysFromSunday));
   }
 
-
-  // 🎯 NAVIGATION FUNCTION: Moves the view one week forward or backward
   void _navigateToWeek(int offset) {
     final newWeekStart = _currentWeekStart.add(Duration(days: offset * 7));
-
-
     final daysFromWeekStart = _selectedDate.difference(_currentWeekStart).inDays;
-
-
     final newSelectedDate = newWeekStart.add(Duration(days: daysFromWeekStart));
-
-
     final newWeekEnd = newWeekStart.add(const Duration(days: 6));
     final finalSelectedDate = newSelectedDate.isAfter(newWeekEnd) ? newWeekEnd : newSelectedDate;
-
-
-
 
     setState(() {
       _currentWeekStart = newWeekStart;
@@ -862,9 +829,7 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     });
   }
 
-
   // ---------- helper methods ----------
-
 
   String _fmtHrsMins(int totalMins) {
     if (totalMins <= 0) return '0h 00m';
@@ -873,40 +838,26 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     return '${h}h ${m.toString().padLeft(2, '0')}m';
   }
 
-
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-
-  // 🎯 _minsOfRow: CRITICAL FIX: Enhanced parsing of total duration from raw rows
   int _minsOfRow(Map<String, dynamic> row) {
-    // 1. CRITICAL: Check the confirmed backend field name first (totalWorkDurationMinutes)
     final totalWorkMinutes = row['totalWorkDurationMinutes'];
     if (totalWorkMinutes is num) return totalWorkMinutes.toInt();
 
-
-    // 2. Check general duration fields (Minutes and decimal/integer hours)
     final totalMinsNum = row['totalMinutes'] ?? row['totalDurationMinutes'];
     if (totalMinsNum is num) return totalMinsNum.toInt();
 
-
-    // 3. Check and parse total duration string fields
     final rawHours = row['totalHours'] ?? row['totalDuration'] ?? row['duration'];
-
 
     if (rawHours != null) {
       if (rawHours is num) {
         return (rawHours * 60).round();
       }
-
-
       if (rawHours is String) {
         final cleanStr = rawHours.trim();
-
-
         final asDouble = double.tryParse(cleanStr);
         if (asDouble != null) return (asDouble * 60).round();
-
 
         final hhmm = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(cleanStr);
         if (hhmm != null) {
@@ -917,8 +868,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       }
     }
 
-
-    // 4. Fallback: Calculate duration from punch times (original complex logic)
     String _safeTime(dynamic v) {
       if (v == null) return '—';
       final raw = v.toString().trim();
@@ -951,37 +900,47 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       return h * 60 + m;
     }
 
-
     final inV  = row['checkInTime'] ?? row['inTime'] ?? row['startTime'];
     final outV = row['checkOutTime'] ?? row['outTime'] ?? row['endTime'];
     final a = _safeTime(inV), b = _safeTime(outV);
     if (a == '—' || b == '—') return 0;
-
 
     var s = _toMin(a), e = _toMin(b);
     if (e < s) e += 24 * 60;
     return e - s;
   }
 
+  // 🎯 NEW: Dynamic placeholder builder (Replaces static 15-21 data)
+  List<_DayCell> _buildEmptyCellsForWeek(DateTime start) {
+    final list = <_DayCell>[];
+    final now = DateTime.now();
+    for (int i = 0; i < 7; i++) {
+      final d = start.add(Duration(days: i));
+      final isToday = _isSameDay(d, now);
+      final isWeekend = d.weekday == DateTime.sunday || d.weekday == DateTime.saturday;
 
-  // ❗️ Kept: _buildPlaceholderCells (unchanged)
+      list.add(_DayCell(
+        DateFormat('E').format(d),
+        DateFormat('d').format(d),
+        isWeekend ? 'OFF' : '0h',
+        isWeekend ? DayState.off : (isToday ? DayState.today : DayState.pending),
+      ));
+    }
+    return list;
+  }
+
+  // ❗️ This is the OLD method causing static data. You can remove it or keep it unused.
   List<_DayCell> _buildPlaceholderCells() => const [
     _DayCell('Sun', '15', 'OFF', DayState.off),
     _DayCell('Mon', '16', '—h', DayState.pending),
-    _DayCell('Tue', '17', '—h', DayState.pending),
-    _DayCell('Wed', '18', '—h', DayState.pending),
-    _DayCell('Thu', '19', '—h', DayState.today),
-    _DayCell('Fri', '20', '—h', DayState.pending),
-    _DayCell('Sat', '21', 'OFF', DayState.off),
+    // ... this was causing your static data ...
   ];
-
 
   String _weekLabel() {
     final left = DateFormat('d MMM').format(_currentWeekStart);
     final right = DateFormat('d MMM').format(_currentWeekStart.add(const Duration(days: 6)));
     return 'Week $left - $right';
   }
-
 
   DateTime? _asDateTime(dynamic v) {
     if (v == null) return null;
@@ -995,15 +954,12 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     return DateTime.tryParse(s);
   }
 
-
   String _fmt(DateTime dt) =>
       '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-
 
   List<PunchEventDetail> _getDynamicPunchesForSelected() {
     final key = DateFormat('yyyy-MM-dd').format(_selectedDate);
     final rows = _rowsByDate[key] ?? const <Map<String, dynamic>>[];
-
 
     final evts = <Map<String, dynamic>>[];
     for (final r in rows) {
@@ -1021,34 +977,27 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       }
     }
 
-
-    // Sort events by time
     evts.sort((a, b) {
       final ta = _asDateTime(a['eventTime'] ?? a['time'] ?? a['timestamp'] ?? a['at']) ?? DateTime.fromMillisecondsSinceEpoch(0);
       final tb = _asDateTime(b['eventTime'] ?? b['time'] ?? b['timestamp'] ?? b['at']) ?? DateTime.fromMillisecondsSinceEpoch(0);
       return ta.compareTo(tb);
     });
 
-
     final dynamicPunches = <PunchEventDetail>[];
     int punchSet = 0;
-
 
     for (final e in evts) {
       final dt = _asDateTime(e['eventTime'] ?? e['time'] ?? e['timestamp'] ?? e['at']);
       if (dt == null || !_isSameDay(dt, _selectedDate)) continue;
 
-
       final tRaw = (e['punchType'] ?? e['type'] ?? e['eventType'] ?? e['action'] ?? '')
           .toString()
           .toUpperCase();
 
-
       String typeLabel = 'EVENT';
 
-
       if (tRaw.contains('IN')) {
-        punchSet++; // Increment set counter on IN
+        punchSet++;
         typeLabel = 'Punch ${punchSet} IN';
         dynamicPunches.add(PunchEventDetail(
           type: typeLabel,
@@ -1056,7 +1005,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
           dateKey: key,
         ));
       } else if (tRaw.contains('OUT')) {
-        // Use the current set number for OUT punch (ensuring it's at least 1)
         final currentSet = punchSet > 0 ? punchSet : 1;
         typeLabel = 'Punch ${currentSet} OUT';
         dynamicPunches.add(PunchEventDetail(
@@ -1065,14 +1013,12 @@ class _TimesheetScreenState extends State<TimesheetScreen>
           dateKey: key,
         ));
       } else if (tRaw.contains('BREAK')) {
-        // Handle other events like BREAK
         dynamicPunches.add(PunchEventDetail(
           type: 'BREAK',
           time: _fmt(dt),
           dateKey: key,
         ));
       } else {
-        // Handle unclassified events
         dynamicPunches.add(PunchEventDetail(
           type: 'EVENT',
           time: _fmt(dt),
@@ -1081,10 +1027,8 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       }
     }
 
-
     return dynamicPunches;
   }
-
 
   _PillData _getPillData(String rawStatus) {
     final status = rawStatus.toUpperCase();
@@ -1114,25 +1058,51 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     }
   }
 
+  // ✅ Helper to calculate schedule duration
+  String _calculateScheduleDuration(String? start, String? end) {
+    if (start == null || end == null || start.isEmpty || end.isEmpty) return '';
 
+    try {
+      DateTime parseTime(String timeStr) {
+        final parts = timeStr.split(':');
+        final now = DateTime.now();
+        return DateTime(
+          now.year,
+          now.month,
+          now.day,
+          int.parse(parts[0]),
+          int.parse(parts[1]),
+        );
+      }
 
+      final s = parseTime(start);
+      final e = parseTime(end);
+
+      final endAdjusted = e.isBefore(s) ? e.add(const Duration(days: 1)) : e;
+      final diff = endAdjusted.difference(s);
+      final h = diff.inHours;
+      final m = diff.inMinutes.remainder(60);
+
+      if (h > 0 && m > 0) return '${h}h ${m}m';
+      if (h > 0) return '${h}h';
+      if (m > 0) return '${m}m';
+      return '';
+    } catch (_) {
+      return '';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
 
-
-    // Get minutes and label for the currently selected day
     final selectedKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
     final selectedRows = _rowsByDate[selectedKey] ?? const <Map<String, dynamic>>[];
     final selectedMins = selectedRows.fold<int>(0, (acc, r) => acc + _minsOfRow(r));
     final selectedDurLabel = _fmtHrsMins(selectedMins);
 
-
     final dynamicPunches = _getDynamicPunchesForSelected();
 
-
-    // 🎯 Find Exception Status for Selected Date
     String exceptionStatus = 'None';
     final anomaly = _summaryData?.anomaly;
     if (anomaly != null) {
@@ -1140,8 +1110,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
         final anomalyDate = DateTime.tryParse(anomaly.date);
         if (anomalyDate != null && _isSameDay(anomalyDate, _selectedDate)) {
           String rawMessage = anomaly.message.toLowerCase();
-
-
           if (rawMessage.contains('punch-out')) {
             exceptionStatus = 'Missing Clock-Out';
           } else if (rawMessage.contains('late')) {
@@ -1154,46 +1122,51 @@ class _TimesheetScreenState extends State<TimesheetScreen>
             exceptionStatus = anomaly.message;
           }
         }
-      } catch (_) {
-        // If date parsing fails, keep exceptionStatus as 'None'
-      }
+      } catch (_) {}
     }
 
-
-    // 🎯 DYNAMIC YESTERDAY CALCULATION
     final dayBeforeSelected = _selectedDate.subtract(const Duration(days: 1));
     final keyDayBefore = DateFormat('yyyy-MM-dd').format(dayBeforeSelected);
 
-
-    // Get minutes for the day before the selected date from the raw rows cache
     final relativeYesterdayMins = _minutesByDate[keyDayBefore] ?? 0;
     final relativeYesterdayHours = _fmtHrsMins(relativeYesterdayMins);
 
-
-    // Determine the label for the 'Yesterday' card
     final yesterdayCardLabel = _isSameDay(_selectedDate, DateTime.now())
-        ? 'Yesterday' // If today is selected, label is fixed 'Yesterday'
-        : DateFormat('EEE d MMM').format(dayBeforeSelected); // Otherwise, show the actual date
+        ? 'Yesterday'
+        : DateFormat('EEE d MMM').format(dayBeforeSelected);
 
-
-    // 🎯 GET PILL DATA FOR SELECTED DAY
     final selectedRow = selectedRows.isNotEmpty ? selectedRows.first : null;
     final rawStatus = selectedRow?['status']?.toString().toUpperCase() ?? 'PENDING';
     final pillData = _getPillData(rawStatus);
 
+    // 🎯 EXTRACT SCHEDULE DATA (Prefer Roster API, Fallback to Timesheet)
+    final roster = _rosterByDate[selectedKey];
 
+    final String? shiftStart = roster?.shift?.startTime
+        ?? selectedRow?['shiftStart']?.toString()
+        ?? selectedRow?['rosterStart']?.toString()
+        ?? selectedRow?['startTime']?.toString();
 
+    final String? shiftEnd = roster?.shift?.endTime
+        ?? selectedRow?['shiftEnd']?.toString()
+        ?? selectedRow?['rosterEnd']?.toString()
+        ?? selectedRow?['endTime']?.toString();
+
+    final String scheduleDuration = _calculateScheduleDuration(shiftStart, shiftEnd);
+
+    // ✅ Format Schedule String
+    final String scheduleDisplay = (shiftStart != null && shiftEnd != null)
+        ? '$shiftStart - $shiftEnd${scheduleDuration.isNotEmpty ? ' ($scheduleDuration)' : ''}'
+        : '—';
 
     return GradientScaffold(
       title: 'Timesheet',
       trailing: const Icon(Icons.save_alt_rounded),
-      // 🎯 CALL THE MASTER LOADER
       child: RefreshIndicator(
         onRefresh: _loadAllTimesheetData,
         child: ListView(
           padding: const EdgeInsets.only(bottom: 24),
           children: [
-            // 🎯 WEEK NAVIGATION HEADER
             Padding(
               padding: const EdgeInsets.only(left: 16, right: 16),
               child: Row(
@@ -1201,9 +1174,8 @@ class _TimesheetScreenState extends State<TimesheetScreen>
                 children: [
                   IconButton(
                     icon: const Icon(Icons.arrow_back_ios),
-                    onPressed: () => _navigateToWeek(-1), // Previous week
+                    onPressed: () => _navigateToWeek(-1),
                   ),
-                  // ✅ FIX: Give SectionHeader bounded width inside Row
                   Expanded(
                     child: SectionHeader(
                       _weekLabel(),
@@ -1212,14 +1184,12 @@ class _TimesheetScreenState extends State<TimesheetScreen>
                   ),
                   IconButton(
                     icon: const Icon(Icons.arrow_forward_ios),
-                    onPressed: () => _navigateToWeek(1), // Next week
+                    onPressed: () => _navigateToWeek(1),
                   ),
                 ],
               ),
             ),
 
-
-            // Week totals (dynamic)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(
@@ -1230,7 +1200,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
                     style: const TextStyle(color: Colors.black54),
                   ),
                   const SizedBox(height: 4),
-                  // 🎯 DYNAMIC YESTERDAY CARD
                   Row(
                     children: [
                       Expanded(child: StatCard(value: relativeYesterdayHours, label: yesterdayCardLabel)),
@@ -1243,7 +1212,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
             ),
             const SizedBox(height: 8),
 
-
             if (_cells == null)
               const Padding(
                 padding: EdgeInsets.only(top: 24),
@@ -1252,12 +1220,10 @@ class _TimesheetScreenState extends State<TimesheetScreen>
             else
               _TimesheetWeekGrid(
                 cells: _cells,
-                weekStart: _currentWeekStart, // Use current week state
+                weekStart: _currentWeekStart,
                 onTapDay: (date) => setState(() => _selectedDate = date),
               ),
 
-
-            // Detail card
             Card(
               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Padding(
@@ -1273,14 +1239,15 @@ class _TimesheetScreenState extends State<TimesheetScreen>
                               fontWeight: FontWeight.w800, fontSize: 16),
                         ),
                         const Spacer(),
-                        // 🎯 DYNAMIC STATUS PILL
                         Pill(pillData.label, bg: pillData.bg, fg: pillData.fg),
                       ],
                     ),
                     const SizedBox(height: 12),
 
+                    // ✅ ADDED: Schedule Row Display
+                    KeyVal('Schedule', scheduleDisplay),
+                    const SizedBox(height: 12),
 
-                    // 🎯 DYNAMIC PUNCHES
                     if (dynamicPunches.isEmpty)
                       const KeyVal('Punches', 'No recorded punches for this day.')
                     else
@@ -1290,7 +1257,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
                           punch.time,
                         );
                       }).toList(),
-
 
                     const SizedBox(height: 12),
                     Row(
@@ -1310,9 +1276,7 @@ class _TimesheetScreenState extends State<TimesheetScreen>
   }
 }
 
-
 enum DayState { today, completed, pending, off }
-
 
 class _DayCell {
   final String day;
@@ -1321,7 +1285,6 @@ class _DayCell {
   final DayState state;
   const _DayCell(this.day, this.date, this.hours, this.state);
 }
-
 
 class _TimesheetWeekGrid extends StatelessWidget {
   final List<_DayCell>? cells;
@@ -1332,7 +1295,6 @@ class _TimesheetWeekGrid extends StatelessWidget {
     required this.weekStart,
     this.onTapDay,
   });
-
 
   @override
   Widget build(BuildContext context) {
@@ -1346,7 +1308,6 @@ class _TimesheetWeekGrid extends StatelessWidget {
           _DayCell('Fri', '20', '8h', DayState.pending),
           _DayCell('Sat', '21', 'OFF', DayState.off),
         ];
-
 
     return Card(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -1379,12 +1340,10 @@ class _TimesheetWeekGrid extends StatelessWidget {
   }
 }
 
-
 class _DayTile extends StatelessWidget {
   final _DayCell cell;
   final VoidCallback? onTap;
   const _DayTile({required this.cell, this.onTap});
-
 
   @override
   Widget build(BuildContext context) {
@@ -1393,7 +1352,7 @@ class _DayTile extends StatelessWidget {
       case DayState.today:     bg = const Color(0xFF667EEA); fg = Colors.white; break;
       case DayState.completed: bg = const Color(0xFF28A745); fg = Colors.white; break;
       case DayState.pending:   bg = const Color(0xFFFFC107); fg = Colors.black87; break;
-      case DayState.off: default: bg = const Color(0xFFF8F9FA); fg = Colors.black54;
+      case DayState.off: bg = const Color(0xFFF8F9FA); fg = Colors.black54;
     }
     return InkWell(
       borderRadius: BorderRadius.circular(10),
@@ -1411,4 +1370,3 @@ class _DayTile extends StatelessWidget {
     );
   }
 }
-

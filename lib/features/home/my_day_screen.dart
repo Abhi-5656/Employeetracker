@@ -10,6 +10,8 @@ import '../../data/services/auth_service.dart';
 import '../../data/services/location_service.dart';
 import '../../shared/ui.dart';
 import '../../data/services/notification_service.dart';
+import '../visit_proof/add_visit_proof_screen.dart';
+import '../visit_proof/team_visits_screen.dart';
 
 class MyDayScreen extends StatefulWidget {
   final VoidCallback onCantMake;
@@ -155,7 +157,19 @@ class MyDayScreenState extends State<MyDayScreen>
       },
     );
   }
+  void _navigateToAddProof() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const AddVisitProofScreen()),
+    );
+  }
 
+  void _navigateToTeamProofs() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const TeamVisitsScreen()),
+    );
+  }
   /// Handles the Clock In / Clock Out action.
   /// It initiates the background service via LocationService.
   void _handleClockIn() async {
@@ -327,12 +341,54 @@ class MyDayScreenState extends State<MyDayScreen>
     required Widget shiftCard,
     MyDayData? stats,
   }) {
+    // Check role
+    final bool isManager = AuthService.instance.hasReportees;
     return ListView(
       padding: const EdgeInsets.only(bottom: 24),
       children: [
         const SizedBox(height: 8),
         greetingCard,
         shiftCard,
+        // --- NEW: Visit Proof Section ---
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Card(
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text("On-Field Activities",
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 12),
+
+                  // 1. Field Employee Action
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.camera_alt),
+                    label: const Text('Add Client Visit Proof'),
+                    onPressed: _navigateToAddProof,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue[50],
+                      foregroundColor: Colors.blue[800],
+                    ),
+                  ),
+
+                  // 2. Manager Action (Conditional Render)
+                  if (isManager) ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.supervisor_account),
+                      label: const Text('View Team Visits'),
+                      onPressed: _navigateToTeamProofs,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+        // ----------------------------------
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
