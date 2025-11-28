@@ -573,7 +573,803 @@
 //   }
 // }
 
-
+//
+// import 'package:flutter/material.dart';
+// import 'package:intl/intl.dart';
+//
+// // services
+// import '../../data/services/auth_service.dart';
+// import '../../data/services/timesheet_service.dart';
+// import '../../data/services/dashboard_service.dart';
+// import '../../data/services/shift_service.dart'; // 👈 Ensure this exists
+// import '../../data/models/attendance_timesheet_model.dart';
+// import '../../data/models/shift_roster_model.dart'; // 👈 Ensure this exists
+// import '../../shared/ui.dart';
+//
+// // 🎯 DTO for Dynamic Punch Display
+// class PunchEventDetail {
+//   final String type;
+//   final String time;
+//   final String dateKey;
+//
+//   PunchEventDetail({required this.type, required this.time, required this.dateKey});
+// }
+//
+// // 🎯 Helper DTO for Pill Data
+// class _PillData {
+//   final String label;
+//   final Color bg;
+//   final Color fg;
+//   const _PillData(this.label, this.bg, this.fg);
+// }
+//
+// class TimesheetScreen extends StatefulWidget {
+//   final VoidCallback onSaveDraft;
+//   final VoidCallback onSubmitWeek;
+//   const TimesheetScreen({super.key, required this.onSaveDraft, required this.onSubmitWeek});
+//
+//   @override
+//   State<TimesheetScreen> createState() => _TimesheetScreenState();
+// }
+//
+// class _TimesheetScreenState extends State<TimesheetScreen>
+//     with AutomaticKeepAliveClientMixin<TimesheetScreen>
+// {
+//   // State variables for displaying summary data
+//   String _yesterdayStr = '—';
+//   String _thisWeekStr  = '—';
+//   int _exceptionsCount = 0;
+//   AttendanceTimesheetData? _summaryData;
+//
+//   Future<void>? _loadFuture;
+//
+//   // State variables for timesheet grid/detail
+//   List<_DayCell>? _cells;
+//
+//   late DateTime _currentWeekStart;
+//   late DateTime _weekEndSat;
+//
+//   final Map<String, List<Map<String, dynamic>>> _rowsByDate = {};
+//
+//   // 🎯 Store Roster Data to display Schedule
+//   final Map<String, EmployeeShiftRoster> _rosterByDate = {};
+//
+//   late DateTime _selectedDate;
+//
+//   // Total minutes calculated for each day
+//   final Map<String, int> _minutesByDate = {};
+//
+//   @override
+//   bool get wantKeepAlive => true;
+//
+//   // ---------- initialization and loading ----------
+//
+//   @override
+//   void initState() {
+//     super.initState();
+//     final now = DateTime.now();
+//
+//     final daysFromSunday = now.weekday % 7;
+//     _currentWeekStart = DateTime(now.year, now.month, now.day)
+//         .subtract(Duration(days: daysFromSunday));
+//     _weekEndSat = _currentWeekStart.add(const Duration(days: 6));
+//
+//     _selectedDate = now.isBefore(_currentWeekStart)
+//         ? _currentWeekStart
+//         : (now.isAfter(_weekEndSat) ? _weekEndSat : now);
+//
+//     _loadFuture = _loadAllTimesheetData();
+//   }
+//
+//   Future<void> _loadAllTimesheetData() async {
+//     // Reset display data
+//     setState(() {
+//       _cells = null;
+//       _rowsByDate.clear();
+//       _rosterByDate.clear();
+//       _yesterdayStr = '—';
+//       _thisWeekStr = '—';
+//       _exceptionsCount = 0;
+//       _summaryData = null;
+//       _minutesByDate.clear();
+//     });
+//
+//     try {
+//       final empId = AuthService.instance.employeeId;
+//       if (empId == null || empId.isEmpty) {
+//         // 🎯 If no user, show empty cells for the ACTUAL week, not static 15-21
+//         setState(() => _cells = _buildEmptyCellsForWeek(_currentWeekStart));
+//         return;
+//       }
+//
+//       final currentWeekEnd = _currentWeekStart.add(const Duration(days: 6));
+//       final systemWeekStart = _getSystemWeekStart();
+//
+//       // 1. Fetch Summary Data
+//       try {
+//         if (_isSameDay(_currentWeekStart, systemWeekStart)) {
+//           final summary = await DashboardService.instance.getAttendanceTimesheetData();
+//           final yesterday = DateTime.now().subtract(const Duration(days: 1));
+//           final yDayAbbrev = DateFormat('E').format(yesterday);
+//
+//           final yDailyHour = summary.dailyHours.firstWhere(
+//                 (dh) => dh.day == yDayAbbrev,
+//             orElse: () => DailyHour(day: yDayAbbrev, hours: 0.0),
+//           );
+//
+//           final totalWeekMinutes = summary.dailyHours.fold<int>(0, (sum, dh) => sum + dh.totalMinutes);
+//
+//           _yesterdayStr = _fmtHrsMins(yDailyHour.totalMinutes);
+//           _thisWeekStr  = _fmtHrsMins(totalWeekMinutes);
+//           _exceptionsCount = summary.anomaly != null ? 1 : 0;
+//           _summaryData = summary;
+//         }
+//       } catch (e) {
+//         debugPrint('⚠️ Dashboard summary failed (non-critical): $e');
+//       }
+//
+//       // 2. Fetch Timesheet Grid Data (Critical)
+//       final rows = await TimesheetService.instance.getRangeRaw(
+//         start: _currentWeekStart,
+//         end: currentWeekEnd,
+//       );
+//
+//       // 3. 🎯 Fetch Shift Roster Data (For Schedule Times)
+//       try {
+//         final rosterList = await ShiftService.instance.getRosterForRange(
+//           start: _currentWeekStart,
+//           end: currentWeekEnd,
+//         );
+//         for (final r in rosterList) {
+//           if (r.calendarDate != null) {
+//             _rosterByDate[r.calendarDate!] = r;
+//           }
+//         }
+//       } catch (e) {
+//         debugPrint('⚠️ Failed to load shift roster: $e');
+//       }
+//
+//       // --- Process Grid Data ---
+//       String? _keyOf(Map<String, dynamic> row) {
+//         for (final k in const ['date', 'workDate', 'calendarDate', 'day', 'forDate']) {
+//           final v = row[k];
+//           if (v is String && v.isNotEmpty) {
+//             final d = DateTime.tryParse(v);
+//             if (d != null) return DateFormat('yyyy-MM-dd').format(d);
+//           }
+//         }
+//         final inV = row['checkInTime'] ?? row['inTime'] ?? row['startTime'];
+//         if (inV is String && inV.isNotEmpty) {
+//           final d = DateTime.tryParse(inV);
+//           if (d != null) return DateFormat('yyyy-MM-dd').format(d);
+//         }
+//         return null;
+//       }
+//
+//       for (final r in rows) {
+//         if (r is! Map<String, dynamic>) continue;
+//         final key = _keyOf(r);
+//         if (key == null) continue;
+//         (_rowsByDate[key] ??= <Map<String, dynamic>>[]).add(r);
+//       }
+//
+//       final Map<String, int> minutesByDateLocal = {
+//         for (int i = 0; i < 7; i++)
+//           DateFormat('yyyy-MM-dd').format(_currentWeekStart.add(Duration(days: i))): 0
+//       };
+//       _rowsByDate.forEach((key, list) {
+//         for (final r in list) {
+//           minutesByDateLocal[key] = (minutesByDateLocal[key] ?? 0) + _minsOfRow(r);
+//         }
+//       });
+//
+//       final newCells = <_DayCell>[];
+//       final today = DateTime.now();
+//       for (int i = 0; i < 7; i++) {
+//         final d = _currentWeekStart.add(Duration(days: i));
+//         final dayAbbrev = DateFormat('E').format(d);
+//         final dateStr   = DateFormat('d').format(d);
+//         final mins = minutesByDateLocal[DateFormat('yyyy-MM-dd').format(d)] ?? 0;
+//         final isSameDay = _isSameDay(d, today);
+//
+//         String hoursLabel;
+//         DayState state;
+//         if (mins <= 0) {
+//           final isWeekend = d.weekday == DateTime.sunday || d.weekday == DateTime.saturday;
+//           hoursLabel = isWeekend ? 'OFF' : '0h';
+//           state = isWeekend
+//               ? DayState.off
+//               : (isSameDay ? DayState.today : DayState.pending);
+//         } else {
+//           hoursLabel = '${mins ~/ 60}h';
+//           state = isSameDay ? DayState.today : DayState.completed;
+//         }
+//         newCells.add(_DayCell(dayAbbrev, dateStr, hoursLabel, state));
+//       }
+//
+//       if (!mounted) return;
+//       setState(() {
+//         _cells = newCells;
+//         _minutesByDate.clear();
+//         _minutesByDate.addAll(minutesByDateLocal);
+//       });
+//
+//     } catch (e) {
+//       // 🛑 THIS IS WHY YOU SAW STATIC DATA
+//       // An error occurred, so we printed it and generated empty cells for the CURRENT week
+//       print('🔴 Error loading timesheet data: $e');
+//
+//       if (!mounted) return;
+//       setState(() {
+//         // 🎯 FIX: Use dynamic empty cells for the selected week, not hardcoded 15-21
+//         _cells = _buildEmptyCellsForWeek(_currentWeekStart);
+//         _yesterdayStr = 'Error';
+//         _thisWeekStr  = 'Error';
+//       });
+//     }
+//   }
+//
+//   DateTime _getSystemWeekStart() {
+//     final now = DateTime.now();
+//     final daysFromSunday = now.weekday % 7;
+//     return DateTime(now.year, now.month, now.day).subtract(Duration(days: daysFromSunday));
+//   }
+//
+//   void _navigateToWeek(int offset) {
+//     final newWeekStart = _currentWeekStart.add(Duration(days: offset * 7));
+//     final daysFromWeekStart = _selectedDate.difference(_currentWeekStart).inDays;
+//     final newSelectedDate = newWeekStart.add(Duration(days: daysFromWeekStart));
+//     final newWeekEnd = newWeekStart.add(const Duration(days: 6));
+//     final finalSelectedDate = newSelectedDate.isAfter(newWeekEnd) ? newWeekEnd : newSelectedDate;
+//
+//     setState(() {
+//       _currentWeekStart = newWeekStart;
+//       _selectedDate = finalSelectedDate;
+//       _loadFuture = _loadAllTimesheetData();
+//     });
+//   }
+//
+//   // ---------- helper methods ----------
+//
+//   String _fmtHrsMins(int totalMins) {
+//     if (totalMins <= 0) return '0h 00m';
+//     final h = totalMins ~/ 60;
+//     final m = totalMins % 60;
+//     return '${h}h ${m.toString().padLeft(2, '0')}m';
+//   }
+//
+//   bool _isSameDay(DateTime a, DateTime b) =>
+//       a.year == b.year && a.month == b.month && a.day == b.day;
+//
+//   int _minsOfRow(Map<String, dynamic> row) {
+//     final totalWorkMinutes = row['totalWorkDurationMinutes'];
+//     if (totalWorkMinutes is num) return totalWorkMinutes.toInt();
+//
+//     final totalMinsNum = row['totalMinutes'] ?? row['totalDurationMinutes'];
+//     if (totalMinsNum is num) return totalMinsNum.toInt();
+//
+//     final rawHours = row['totalHours'] ?? row['totalDuration'] ?? row['duration'];
+//
+//     if (rawHours != null) {
+//       if (rawHours is num) {
+//         return (rawHours * 60).round();
+//       }
+//       if (rawHours is String) {
+//         final cleanStr = rawHours.trim();
+//         final asDouble = double.tryParse(cleanStr);
+//         if (asDouble != null) return (asDouble * 60).round();
+//
+//         final hhmm = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(cleanStr);
+//         if (hhmm != null) {
+//           final hh = int.tryParse(hhmm.group(1)!) ?? 0;
+//           final mm = int.tryParse(hhmm.group(2)!) ?? 0;
+//           return (hh * 60) + mm;
+//         }
+//       }
+//     }
+//
+//     String _safeTime(dynamic v) {
+//       if (v == null) return '—';
+//       final raw = v.toString().trim();
+//       if (raw.isEmpty || raw == '—') return '—';
+//       final iso = DateTime.tryParse(raw);
+//       if (iso != null) {
+//         final hh = iso.hour.toString().padLeft(2, '0');
+//         final mm = iso.minute.toString().padLeft(2, '0');
+//         return '$hh:$mm';
+//       }
+//       final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(raw);
+//       if (m != null) {
+//         final hh = m.group(1)!.padLeft(2, '0');
+//         final mm = m.group(2)!;
+//         return '$hh:$mm';
+//       }
+//       final digits = raw.replaceAll(RegExp(r'\D+'), '');
+//       if (digits.length == 3 || digits.length == 4) {
+//         final h = int.tryParse(digits.substring(0, digits.length - 2)) ?? 0;
+//         final mi = int.tryParse(digits.substring(digits.length - 2)) ?? 0;
+//         return '${h.toString().padLeft(2, '0')}:${mi.toString().padLeft(2, '0')}';
+//       }
+//       return '—';
+//     }
+//     int _toMin(String hhmm) {
+//       final parts = hhmm.split(':');
+//       if (parts.length < 2) return 0;
+//       final h = int.tryParse(parts[0]) ?? 0;
+//       final m = int.tryParse(parts[1]) ?? 0;
+//       return h * 60 + m;
+//     }
+//
+//     final inV  = row['checkInTime'] ?? row['inTime'] ?? row['startTime'];
+//     final outV = row['checkOutTime'] ?? row['outTime'] ?? row['endTime'];
+//     final a = _safeTime(inV), b = _safeTime(outV);
+//     if (a == '—' || b == '—') return 0;
+//
+//     var s = _toMin(a), e = _toMin(b);
+//     if (e < s) e += 24 * 60;
+//     return e - s;
+//   }
+//
+//   // 🎯 NEW: Dynamic placeholder builder (Replaces static 15-21 data)
+//   List<_DayCell> _buildEmptyCellsForWeek(DateTime start) {
+//     final list = <_DayCell>[];
+//     final now = DateTime.now();
+//     for (int i = 0; i < 7; i++) {
+//       final d = start.add(Duration(days: i));
+//       final isToday = _isSameDay(d, now);
+//       final isWeekend = d.weekday == DateTime.sunday || d.weekday == DateTime.saturday;
+//
+//       list.add(_DayCell(
+//         DateFormat('E').format(d),
+//         DateFormat('d').format(d),
+//         isWeekend ? 'OFF' : '0h',
+//         isWeekend ? DayState.off : (isToday ? DayState.today : DayState.pending),
+//       ));
+//     }
+//     return list;
+//   }
+//
+//   // ❗️ This is the OLD method causing static data. You can remove it or keep it unused.
+//   List<_DayCell> _buildPlaceholderCells() => const [
+//     _DayCell('Sun', '15', 'OFF', DayState.off),
+//     _DayCell('Mon', '16', '—h', DayState.pending),
+//     // ... this was causing your static data ...
+//   ];
+//
+//   String _weekLabel() {
+//     final left = DateFormat('d MMM').format(_currentWeekStart);
+//     final right = DateFormat('d MMM').format(_currentWeekStart.add(const Duration(days: 6)));
+//     return 'Week $left - $right';
+//   }
+//
+//   DateTime? _asDateTime(dynamic v) {
+//     if (v == null) return null;
+//     if (v is int || v is num) {
+//       final n = v.toInt();
+//       final ms = (n > 20000000000) ? n : n * 1000;
+//       return DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true).toLocal();
+//     }
+//     final s = v.toString().trim();
+//     if (s.isEmpty) return null;
+//     return DateTime.tryParse(s);
+//   }
+//
+//   String _fmt(DateTime dt) =>
+//       '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+//
+//   List<PunchEventDetail> _getDynamicPunchesForSelected() {
+//     final key = DateFormat('yyyy-MM-dd').format(_selectedDate);
+//     final rows = _rowsByDate[key] ?? const <Map<String, dynamic>>[];
+//
+//     final evts = <Map<String, dynamic>>[];
+//     for (final r in rows) {
+//       final pe = r['punchEvents'];
+//       if (pe is List) {
+//         for (final e in pe) {
+//           if (e is Map<String, dynamic>) evts.add(e);
+//         }
+//       }
+//       final e2 = r['events'];
+//       if (e2 is List) {
+//         for (final e in e2) {
+//           if (e is Map<String, dynamic>) evts.add(e);
+//         }
+//       }
+//     }
+//
+//     evts.sort((a, b) {
+//       final ta = _asDateTime(a['eventTime'] ?? a['time'] ?? a['timestamp'] ?? a['at']) ?? DateTime.fromMillisecondsSinceEpoch(0);
+//       final tb = _asDateTime(b['eventTime'] ?? b['time'] ?? b['timestamp'] ?? b['at']) ?? DateTime.fromMillisecondsSinceEpoch(0);
+//       return ta.compareTo(tb);
+//     });
+//
+//     final dynamicPunches = <PunchEventDetail>[];
+//     int punchSet = 0;
+//
+//     for (final e in evts) {
+//       final dt = _asDateTime(e['eventTime'] ?? e['time'] ?? e['timestamp'] ?? e['at']);
+//       if (dt == null || !_isSameDay(dt, _selectedDate)) continue;
+//
+//       final tRaw = (e['punchType'] ?? e['type'] ?? e['eventType'] ?? e['action'] ?? '')
+//           .toString()
+//           .toUpperCase();
+//
+//       String typeLabel = 'EVENT';
+//
+//       if (tRaw.contains('IN')) {
+//         punchSet++;
+//         typeLabel = 'Punch ${punchSet} IN';
+//         dynamicPunches.add(PunchEventDetail(
+//           type: typeLabel,
+//           time: _fmt(dt),
+//           dateKey: key,
+//         ));
+//       } else if (tRaw.contains('OUT')) {
+//         final currentSet = punchSet > 0 ? punchSet : 1;
+//         typeLabel = 'Punch ${currentSet} OUT';
+//         dynamicPunches.add(PunchEventDetail(
+//           type: typeLabel,
+//           time: _fmt(dt),
+//           dateKey: key,
+//         ));
+//       } else if (tRaw.contains('BREAK')) {
+//         dynamicPunches.add(PunchEventDetail(
+//           type: 'BREAK',
+//           time: _fmt(dt),
+//           dateKey: key,
+//         ));
+//       } else {
+//         dynamicPunches.add(PunchEventDetail(
+//           type: 'EVENT',
+//           time: _fmt(dt),
+//           dateKey: key,
+//         ));
+//       }
+//     }
+//
+//     return dynamicPunches;
+//   }
+//
+//   _PillData _getPillData(String rawStatus) {
+//     final status = rawStatus.toUpperCase();
+//     switch (status) {
+//       case 'PRESENT':
+//       case 'COMPLETED':
+//       case 'APPROVED':
+//       case 'VERIFIED':
+//         return const _PillData('Completed', Color(0xFF28A745), Colors.white);
+//       case 'ABSENT':
+//       case 'LEAVE':
+//       case 'HOLIDAY':
+//       case 'OFF':
+//         return const _PillData('Non-Work Day', Color(0xFF6C757D), Colors.white);
+//       case 'DRAFT':
+//       case 'PENDING':
+//       case 'SUBMITTED':
+//       case 'IN PROGRESS':
+//         return const _PillData('In Progress', Color(0xFFFFC107), Colors.black87);
+//       case 'VIOLATION':
+//       case 'EXCEPTION':
+//       case 'REJECTED':
+//         return const _PillData('Violation', Color(0xFFDC3545), Colors.white);
+//       default:
+//         final label = status.isNotEmpty && status.length < 20 ? status : 'Pending/Unknown';
+//         return _PillData(label, const Color(0xFFF8F9FA), Colors.black54);
+//     }
+//   }
+//
+//   // ✅ Helper to calculate schedule duration
+//   String _calculateScheduleDuration(String? start, String? end) {
+//     if (start == null || end == null || start.isEmpty || end.isEmpty) return '';
+//
+//     try {
+//       DateTime parseTime(String timeStr) {
+//         final parts = timeStr.split(':');
+//         final now = DateTime.now();
+//         return DateTime(
+//           now.year,
+//           now.month,
+//           now.day,
+//           int.parse(parts[0]),
+//           int.parse(parts[1]),
+//         );
+//       }
+//
+//       final s = parseTime(start);
+//       final e = parseTime(end);
+//
+//       final endAdjusted = e.isBefore(s) ? e.add(const Duration(days: 1)) : e;
+//       final diff = endAdjusted.difference(s);
+//       final h = diff.inHours;
+//       final m = diff.inMinutes.remainder(60);
+//
+//       if (h > 0 && m > 0) return '${h}h ${m}m';
+//       if (h > 0) return '${h}h';
+//       if (m > 0) return '${m}m';
+//       return '';
+//     } catch (_) {
+//       return '';
+//     }
+//   }
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     super.build(context);
+//
+//     final selectedKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
+//     final selectedRows = _rowsByDate[selectedKey] ?? const <Map<String, dynamic>>[];
+//     final selectedMins = selectedRows.fold<int>(0, (acc, r) => acc + _minsOfRow(r));
+//     final selectedDurLabel = _fmtHrsMins(selectedMins);
+//
+//     final dynamicPunches = _getDynamicPunchesForSelected();
+//
+//     String exceptionStatus = 'None';
+//     final anomaly = _summaryData?.anomaly;
+//     if (anomaly != null) {
+//       try {
+//         final anomalyDate = DateTime.tryParse(anomaly.date);
+//         if (anomalyDate != null && _isSameDay(anomalyDate, _selectedDate)) {
+//           String rawMessage = anomaly.message.toLowerCase();
+//           if (rawMessage.contains('punch-out')) {
+//             exceptionStatus = 'Missing Clock-Out';
+//           } else if (rawMessage.contains('late')) {
+//             exceptionStatus = 'Late Clock-In Detected';
+//           } else if (rawMessage.contains('early')) {
+//             exceptionStatus = 'Early Clock-Out Detected';
+//           } else if (rawMessage.contains('anomaly') || rawMessage.contains('violation')) {
+//             exceptionStatus = 'Policy Violation Found';
+//           } else {
+//             exceptionStatus = anomaly.message;
+//           }
+//         }
+//       } catch (_) {}
+//     }
+//
+//     final dayBeforeSelected = _selectedDate.subtract(const Duration(days: 1));
+//     final keyDayBefore = DateFormat('yyyy-MM-dd').format(dayBeforeSelected);
+//
+//     final relativeYesterdayMins = _minutesByDate[keyDayBefore] ?? 0;
+//     final relativeYesterdayHours = _fmtHrsMins(relativeYesterdayMins);
+//
+//     final yesterdayCardLabel = _isSameDay(_selectedDate, DateTime.now())
+//         ? 'Yesterday'
+//         : DateFormat('EEE d MMM').format(dayBeforeSelected);
+//
+//     final selectedRow = selectedRows.isNotEmpty ? selectedRows.first : null;
+//     final rawStatus = selectedRow?['status']?.toString().toUpperCase() ?? 'PENDING';
+//     final pillData = _getPillData(rawStatus);
+//
+//     // 🎯 EXTRACT SCHEDULE DATA (Prefer Roster API, Fallback to Timesheet)
+//     final roster = _rosterByDate[selectedKey];
+//
+//     final String? shiftStart = roster?.shift?.startTime
+//         ?? selectedRow?['shiftStart']?.toString()
+//         ?? selectedRow?['rosterStart']?.toString()
+//         ?? selectedRow?['startTime']?.toString();
+//
+//     final String? shiftEnd = roster?.shift?.endTime
+//         ?? selectedRow?['shiftEnd']?.toString()
+//         ?? selectedRow?['rosterEnd']?.toString()
+//         ?? selectedRow?['endTime']?.toString();
+//
+//     final String scheduleDuration = _calculateScheduleDuration(shiftStart, shiftEnd);
+//
+//     // ✅ Format Schedule String
+//     final String scheduleDisplay = (shiftStart != null && shiftEnd != null)
+//         ? '$shiftStart - $shiftEnd${scheduleDuration.isNotEmpty ? ' ($scheduleDuration)' : ''}'
+//         : '—';
+//
+//     return GradientScaffold(
+//       title: 'Timesheet',
+//       trailing: const Icon(Icons.save_alt_rounded),
+//       child: RefreshIndicator(
+//         onRefresh: _loadAllTimesheetData,
+//         child: ListView(
+//           padding: const EdgeInsets.only(bottom: 24),
+//           children: [
+//             Padding(
+//               padding: const EdgeInsets.only(left: 16, right: 16),
+//               child: Row(
+//                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+//                 children: [
+//                   IconButton(
+//                     icon: const Icon(Icons.arrow_back_ios),
+//                     onPressed: () => _navigateToWeek(-1),
+//                   ),
+//                   Expanded(
+//                     child: SectionHeader(
+//                       _weekLabel(),
+//                       icon: Icons.date_range_rounded,
+//                     ),
+//                   ),
+//                   IconButton(
+//                     icon: const Icon(Icons.arrow_forward_ios),
+//                     onPressed: () => _navigateToWeek(1),
+//                   ),
+//                 ],
+//               ),
+//             ),
+//
+//             Padding(
+//               padding: const EdgeInsets.symmetric(horizontal: 16),
+//               child: Column(
+//                 crossAxisAlignment: CrossAxisAlignment.start,
+//                 children: [
+//                   Text(
+//                     'Total: $_thisWeekStr | OT: 0h | Status: Draft',
+//                     style: const TextStyle(color: Colors.black54),
+//                   ),
+//                   const SizedBox(height: 4),
+//                   Row(
+//                     children: [
+//                       Expanded(child: StatCard(value: relativeYesterdayHours, label: yesterdayCardLabel)),
+//                       Expanded(child: StatCard(value: '$_exceptionsCount', label: 'Exceptions')),
+//                       const Expanded(child: StatCard(value: '—', label: '—')),
+//                     ],
+//                   ),
+//                 ],
+//               ),
+//             ),
+//             const SizedBox(height: 8),
+//
+//             if (_cells == null)
+//               const Padding(
+//                 padding: EdgeInsets.only(top: 24),
+//                 child: Center(child: CircularProgressIndicator()),
+//               )
+//             else
+//               _TimesheetWeekGrid(
+//                 cells: _cells,
+//                 weekStart: _currentWeekStart,
+//                 onTapDay: (date) => setState(() => _selectedDate = date),
+//               ),
+//
+//             Card(
+//               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+//               child: Padding(
+//                 padding: const EdgeInsets.all(16),
+//                 child: Column(
+//                   crossAxisAlignment: CrossAxisAlignment.start,
+//                   children: [
+//                     Row(
+//                       children: [
+//                         Text(
+//                           '${DateFormat('EEE d MMM').format(_selectedDate)} Details',
+//                           style: const TextStyle(
+//                               fontWeight: FontWeight.w800, fontSize: 16),
+//                         ),
+//                         const Spacer(),
+//                         Pill(pillData.label, bg: pillData.bg, fg: pillData.fg),
+//                       ],
+//                     ),
+//                     const SizedBox(height: 12),
+//
+//                     // ✅ ADDED: Schedule Row Display
+//                     KeyVal('Schedule', scheduleDisplay),
+//                     const SizedBox(height: 12),
+//
+//                     if (dynamicPunches.isEmpty)
+//                       const KeyVal('Punches', 'No recorded punches for this day.')
+//                     else
+//                       ...dynamicPunches.map((punch) {
+//                         return KeyVal(
+//                           punch.type,
+//                           punch.time,
+//                         );
+//                       }).toList(),
+//
+//                     const SizedBox(height: 12),
+//                     Row(
+//                       children: [
+//                         Expanded(child: DetailTile(label: 'Total Hours', value: selectedDurLabel)),
+//                         Expanded(child: DetailTile(label: 'Exceptions', value: exceptionStatus)),
+//                       ],
+//                     ),
+//                   ],
+//                 ),
+//               ),
+//             ),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+// }
+//
+// enum DayState { today, completed, pending, off }
+//
+// class _DayCell {
+//   final String day;
+//   final String date;
+//   final String hours;
+//   final DayState state;
+//   const _DayCell(this.day, this.date, this.hours, this.state);
+// }
+//
+// class _TimesheetWeekGrid extends StatelessWidget {
+//   final List<_DayCell>? cells;
+//   final DateTime weekStart;
+//   final void Function(DateTime date)? onTapDay;
+//   const _TimesheetWeekGrid({
+//     this.cells,
+//     required this.weekStart,
+//     this.onTapDay,
+//   });
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     final cells = this.cells ??
+//         const [
+//           _DayCell('Sun', '15', 'OFF', DayState.off),
+//           _DayCell('Mon', '16', '8h', DayState.completed),
+//           _DayCell('Tue', '17', '8h', DayState.completed),
+//           _DayCell('Wed', '18', '8h', DayState.completed),
+//           _DayCell('Thu', '19', '8h', DayState.today),
+//           _DayCell('Fri', '20', '8h', DayState.pending),
+//           _DayCell('Sat', '21', 'OFF', DayState.off),
+//         ];
+//
+//     return Card(
+//       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+//       child: Padding(
+//         padding: const EdgeInsets.all(12),
+//         child: GridView.count(
+//           crossAxisCount: 7,
+//           shrinkWrap: true,
+//           physics: const NeverScrollableScrollPhysics(),
+//           mainAxisSpacing: 6,
+//           crossAxisSpacing: 6,
+//           childAspectRatio: 0.75,
+//           children: [
+//             for (int i = 0; i < cells.length; i++)
+//               _DayTile(
+//                 cell: cells[i],
+//                 onTap: () {
+//                   final date = DateTime(
+//                     weekStart.year,
+//                     weekStart.month,
+//                     weekStart.day,
+//                   ).add(Duration(days: i));
+//                   onTapDay?.call(date);
+//                 },
+//               ),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+// }
+//
+// class _DayTile extends StatelessWidget {
+//   final _DayCell cell;
+//   final VoidCallback? onTap;
+//   const _DayTile({required this.cell, this.onTap});
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     Color bg; Color fg;
+//     switch (cell.state) {
+//       case DayState.today:     bg = const Color(0xFF667EEA); fg = Colors.white; break;
+//       case DayState.completed: bg = const Color(0xFF28A745); fg = Colors.white; break;
+//       case DayState.pending:   bg = const Color(0xFFFFC107); fg = Colors.black87; break;
+//       case DayState.off: bg = const Color(0xFFF8F9FA); fg = Colors.black54;
+//     }
+//     return InkWell(
+//       borderRadius: BorderRadius.circular(10),
+//       onTap: onTap,
+//       child: Ink(
+//         decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+//         child: Center(
+//           child: Column(mainAxisSize: MainAxisSize.min, children: [
+//             Text(cell.date, style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 16)),
+//             const SizedBox(height: 4),
+//             Text(cell.hours, style: TextStyle(color: fg, fontSize: 12)),
+//           ]),
+//         ),
+//       ),
+//     );
+//   }
+// }
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -581,10 +1377,14 @@ import 'package:intl/intl.dart';
 import '../../data/services/auth_service.dart';
 import '../../data/services/timesheet_service.dart';
 import '../../data/services/dashboard_service.dart';
-import '../../data/services/shift_service.dart'; // 👈 Ensure this exists
+import '../../data/services/shift_service.dart';
 import '../../data/models/attendance_timesheet_model.dart';
-import '../../data/models/shift_roster_model.dart'; // 👈 Ensure this exists
+import '../../data/models/shift_roster_model.dart';
 import '../../shared/ui.dart';
+
+// 🎨 Theme Constants
+const Color _kPrimaryColor = Color(0xFF667EEA);
+const Color _kSecondaryColor = Color(0xFF764BA2);
 
 // 🎯 DTO for Dynamic Punch Display
 class PunchEventDetail {
@@ -615,7 +1415,7 @@ class TimesheetScreen extends StatefulWidget {
 class _TimesheetScreenState extends State<TimesheetScreen>
     with AutomaticKeepAliveClientMixin<TimesheetScreen>
 {
-  // State variables for displaying summary data
+  // State variables
   String _yesterdayStr = '—';
   String _thisWeekStr  = '—';
   int _exceptionsCount = 0;
@@ -623,26 +1423,19 @@ class _TimesheetScreenState extends State<TimesheetScreen>
 
   Future<void>? _loadFuture;
 
-  // State variables for timesheet grid/detail
   List<_DayCell>? _cells;
 
   late DateTime _currentWeekStart;
   late DateTime _weekEndSat;
 
   final Map<String, List<Map<String, dynamic>>> _rowsByDate = {};
-
-  // 🎯 Store Roster Data to display Schedule
   final Map<String, EmployeeShiftRoster> _rosterByDate = {};
 
   late DateTime _selectedDate;
-
-  // Total minutes calculated for each day
   final Map<String, int> _minutesByDate = {};
 
   @override
   bool get wantKeepAlive => true;
-
-  // ---------- initialization and loading ----------
 
   @override
   void initState() {
@@ -662,13 +1455,12 @@ class _TimesheetScreenState extends State<TimesheetScreen>
   }
 
   Future<void> _loadAllTimesheetData() async {
-    // Reset display data
     setState(() {
       _cells = null;
       _rowsByDate.clear();
       _rosterByDate.clear();
       _yesterdayStr = '—';
-      _thisWeekStr = '—';
+      _thisWeekStr  = '—';
       _exceptionsCount = 0;
       _summaryData = null;
       _minutesByDate.clear();
@@ -677,7 +1469,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     try {
       final empId = AuthService.instance.employeeId;
       if (empId == null || empId.isEmpty) {
-        // 🎯 If no user, show empty cells for the ACTUAL week, not static 15-21
         setState(() => _cells = _buildEmptyCellsForWeek(_currentWeekStart));
         return;
       }
@@ -685,7 +1476,7 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       final currentWeekEnd = _currentWeekStart.add(const Duration(days: 6));
       final systemWeekStart = _getSystemWeekStart();
 
-      // 1. Fetch Summary Data
+      // 1. Fetch Summary
       try {
         if (_isSameDay(_currentWeekStart, systemWeekStart)) {
           final summary = await DashboardService.instance.getAttendanceTimesheetData();
@@ -708,13 +1499,13 @@ class _TimesheetScreenState extends State<TimesheetScreen>
         debugPrint('⚠️ Dashboard summary failed (non-critical): $e');
       }
 
-      // 2. Fetch Timesheet Grid Data (Critical)
+      // 2. Fetch Grid Data
       final rows = await TimesheetService.instance.getRangeRaw(
         start: _currentWeekStart,
         end: currentWeekEnd,
       );
 
-      // 3. 🎯 Fetch Shift Roster Data (For Schedule Times)
+      // 3. Fetch Roster
       try {
         final rosterList = await ShiftService.instance.getRosterForRange(
           start: _currentWeekStart,
@@ -729,7 +1520,7 @@ class _TimesheetScreenState extends State<TimesheetScreen>
         debugPrint('⚠️ Failed to load shift roster: $e');
       }
 
-      // --- Process Grid Data ---
+      // Process Data
       String? _keyOf(Map<String, dynamic> row) {
         for (final k in const ['date', 'workDate', 'calendarDate', 'day', 'forDate']) {
           final v = row[k];
@@ -795,13 +1586,8 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       });
 
     } catch (e) {
-      // 🛑 THIS IS WHY YOU SAW STATIC DATA
-      // An error occurred, so we printed it and generated empty cells for the CURRENT week
-      print('🔴 Error loading timesheet data: $e');
-
       if (!mounted) return;
       setState(() {
-        // 🎯 FIX: Use dynamic empty cells for the selected week, not hardcoded 15-21
         _cells = _buildEmptyCellsForWeek(_currentWeekStart);
         _yesterdayStr = 'Error';
         _thisWeekStr  = 'Error';
@@ -829,8 +1615,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     });
   }
 
-  // ---------- helper methods ----------
-
   String _fmtHrsMins(int totalMins) {
     if (totalMins <= 0) return '0h 00m';
     final h = totalMins ~/ 60;
@@ -844,21 +1628,15 @@ class _TimesheetScreenState extends State<TimesheetScreen>
   int _minsOfRow(Map<String, dynamic> row) {
     final totalWorkMinutes = row['totalWorkDurationMinutes'];
     if (totalWorkMinutes is num) return totalWorkMinutes.toInt();
-
     final totalMinsNum = row['totalMinutes'] ?? row['totalDurationMinutes'];
     if (totalMinsNum is num) return totalMinsNum.toInt();
-
     final rawHours = row['totalHours'] ?? row['totalDuration'] ?? row['duration'];
-
     if (rawHours != null) {
-      if (rawHours is num) {
-        return (rawHours * 60).round();
-      }
+      if (rawHours is num) return (rawHours * 60).round();
       if (rawHours is String) {
         final cleanStr = rawHours.trim();
         final asDouble = double.tryParse(cleanStr);
         if (asDouble != null) return (asDouble * 60).round();
-
         final hhmm = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(cleanStr);
         if (hhmm != null) {
           final hh = int.tryParse(hhmm.group(1)!) ?? 0;
@@ -867,7 +1645,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
         }
       }
     }
-
     String _safeTime(dynamic v) {
       if (v == null) return '—';
       final raw = v.toString().trim();
@@ -878,18 +1655,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
         final mm = iso.minute.toString().padLeft(2, '0');
         return '$hh:$mm';
       }
-      final m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(raw);
-      if (m != null) {
-        final hh = m.group(1)!.padLeft(2, '0');
-        final mm = m.group(2)!;
-        return '$hh:$mm';
-      }
-      final digits = raw.replaceAll(RegExp(r'\D+'), '');
-      if (digits.length == 3 || digits.length == 4) {
-        final h = int.tryParse(digits.substring(0, digits.length - 2)) ?? 0;
-        final mi = int.tryParse(digits.substring(digits.length - 2)) ?? 0;
-        return '${h.toString().padLeft(2, '0')}:${mi.toString().padLeft(2, '0')}';
-      }
       return '—';
     }
     int _toMin(String hhmm) {
@@ -899,18 +1664,15 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       final m = int.tryParse(parts[1]) ?? 0;
       return h * 60 + m;
     }
-
     final inV  = row['checkInTime'] ?? row['inTime'] ?? row['startTime'];
     final outV = row['checkOutTime'] ?? row['outTime'] ?? row['endTime'];
     final a = _safeTime(inV), b = _safeTime(outV);
     if (a == '—' || b == '—') return 0;
-
     var s = _toMin(a), e = _toMin(b);
     if (e < s) e += 24 * 60;
     return e - s;
   }
 
-  // 🎯 NEW: Dynamic placeholder builder (Replaces static 15-21 data)
   List<_DayCell> _buildEmptyCellsForWeek(DateTime start) {
     final list = <_DayCell>[];
     final now = DateTime.now();
@@ -918,7 +1680,6 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       final d = start.add(Duration(days: i));
       final isToday = _isSameDay(d, now);
       final isWeekend = d.weekday == DateTime.sunday || d.weekday == DateTime.saturday;
-
       list.add(_DayCell(
         DateFormat('E').format(d),
         DateFormat('d').format(d),
@@ -929,17 +1690,10 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     return list;
   }
 
-  // ❗️ This is the OLD method causing static data. You can remove it or keep it unused.
-  List<_DayCell> _buildPlaceholderCells() => const [
-    _DayCell('Sun', '15', 'OFF', DayState.off),
-    _DayCell('Mon', '16', '—h', DayState.pending),
-    // ... this was causing your static data ...
-  ];
-
   String _weekLabel() {
     final left = DateFormat('d MMM').format(_currentWeekStart);
     final right = DateFormat('d MMM').format(_currentWeekStart.add(const Duration(days: 6)));
-    return 'Week $left - $right';
+    return '$left - $right';
   }
 
   DateTime? _asDateTime(dynamic v) {
@@ -954,79 +1708,45 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     return DateTime.tryParse(s);
   }
 
-  String _fmt(DateTime dt) =>
-      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  String _fmt(DateTime dt) => DateFormat('h:mm a').format(dt);
 
   List<PunchEventDetail> _getDynamicPunchesForSelected() {
     final key = DateFormat('yyyy-MM-dd').format(_selectedDate);
     final rows = _rowsByDate[key] ?? const <Map<String, dynamic>>[];
-
     final evts = <Map<String, dynamic>>[];
     for (final r in rows) {
       final pe = r['punchEvents'];
       if (pe is List) {
-        for (final e in pe) {
-          if (e is Map<String, dynamic>) evts.add(e);
-        }
+        for (final e in pe) { if (e is Map<String, dynamic>) evts.add(e); }
       }
       final e2 = r['events'];
       if (e2 is List) {
-        for (final e in e2) {
-          if (e is Map<String, dynamic>) evts.add(e);
-        }
+        for (final e in e2) { if (e is Map<String, dynamic>) evts.add(e); }
       }
     }
-
     evts.sort((a, b) {
       final ta = _asDateTime(a['eventTime'] ?? a['time'] ?? a['timestamp'] ?? a['at']) ?? DateTime.fromMillisecondsSinceEpoch(0);
       final tb = _asDateTime(b['eventTime'] ?? b['time'] ?? b['timestamp'] ?? b['at']) ?? DateTime.fromMillisecondsSinceEpoch(0);
       return ta.compareTo(tb);
     });
-
     final dynamicPunches = <PunchEventDetail>[];
     int punchSet = 0;
-
     for (final e in evts) {
       final dt = _asDateTime(e['eventTime'] ?? e['time'] ?? e['timestamp'] ?? e['at']);
       if (dt == null || !_isSameDay(dt, _selectedDate)) continue;
-
-      final tRaw = (e['punchType'] ?? e['type'] ?? e['eventType'] ?? e['action'] ?? '')
-          .toString()
-          .toUpperCase();
-
+      final tRaw = (e['punchType'] ?? e['type'] ?? e['eventType'] ?? e['action'] ?? '').toString().toUpperCase();
       String typeLabel = 'EVENT';
-
       if (tRaw.contains('IN')) {
         punchSet++;
         typeLabel = 'Punch ${punchSet} IN';
-        dynamicPunches.add(PunchEventDetail(
-          type: typeLabel,
-          time: _fmt(dt),
-          dateKey: key,
-        ));
       } else if (tRaw.contains('OUT')) {
         final currentSet = punchSet > 0 ? punchSet : 1;
         typeLabel = 'Punch ${currentSet} OUT';
-        dynamicPunches.add(PunchEventDetail(
-          type: typeLabel,
-          time: _fmt(dt),
-          dateKey: key,
-        ));
       } else if (tRaw.contains('BREAK')) {
-        dynamicPunches.add(PunchEventDetail(
-          type: 'BREAK',
-          time: _fmt(dt),
-          dateKey: key,
-        ));
-      } else {
-        dynamicPunches.add(PunchEventDetail(
-          type: 'EVENT',
-          time: _fmt(dt),
-          dateKey: key,
-        ));
+        typeLabel = 'BREAK';
       }
+      dynamicPunches.add(PunchEventDetail(type: typeLabel, time: _fmt(dt), dateKey: key));
     }
-
     return dynamicPunches;
   }
 
@@ -1053,43 +1773,81 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       case 'REJECTED':
         return const _PillData('Violation', Color(0xFFDC3545), Colors.white);
       default:
-        final label = status.isNotEmpty && status.length < 20 ? status : 'Pending/Unknown';
+        final label = status.isNotEmpty && status.length < 20 ? status : 'Pending';
         return _PillData(label, const Color(0xFFF8F9FA), Colors.black54);
     }
   }
 
-  // ✅ Helper to calculate schedule duration
+  String _convertTo12Hour(String time24) {
+    if (time24.isEmpty) return '';
+    try {
+      final parts = time24.split(':');
+      final h = int.parse(parts[0]);
+      final m = int.parse(parts[1]);
+      final dt = DateTime(2022, 1, 1, h, m);
+      return DateFormat('h:mm a').format(dt);
+    } catch (_) { return time24; }
+  }
+
   String _calculateScheduleDuration(String? start, String? end) {
     if (start == null || end == null || start.isEmpty || end.isEmpty) return '';
-
     try {
-      DateTime parseTime(String timeStr) {
-        final parts = timeStr.split(':');
-        final now = DateTime.now();
-        return DateTime(
-          now.year,
-          now.month,
-          now.day,
-          int.parse(parts[0]),
-          int.parse(parts[1]),
-        );
+      final now = DateTime.now();
+      DateTime parseTime(String t) {
+        final p = t.split(':');
+        return DateTime(now.year, now.month, now.day, int.parse(p[0]), int.parse(p[1]));
       }
-
       final s = parseTime(start);
       final e = parseTime(end);
-
       final endAdjusted = e.isBefore(s) ? e.add(const Duration(days: 1)) : e;
       final diff = endAdjusted.difference(s);
       final h = diff.inHours;
       final m = diff.inMinutes.remainder(60);
+      String durationStr = '';
+      if (h > 0 && m > 0) durationStr = ' (${h}h ${m}m)';
+      else if (h > 0) durationStr = ' (${h}h)';
+      else if (m > 0) durationStr = ' (${m}m)';
+      final start12 = _convertTo12Hour(start);
+      final end12 = _convertTo12Hour(end);
+      return '$start12 - $end12$durationStr';
+    } catch (_) { return ''; }
+  }
 
-      if (h > 0 && m > 0) return '${h}h ${m}m';
-      if (h > 0) return '${h}h';
-      if (m > 0) return '${m}m';
-      return '';
-    } catch (_) {
-      return '';
-    }
+  // 🎨 UI Helper: Enhanced Gradient Stat Card (Responsive)
+  Widget _buildGradientStatCard(String label, String value, List<Color> colors) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8), // Reduced horizontal padding
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: colors, begin: Alignment.topLeft, end: Alignment.bottomRight),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(color: colors.first.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4)),
+          ],
+        ),
+        child: Column(
+          children: [
+            // ✅ Responsive Text
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                value,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white),
+              ),
+            ),
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white.withOpacity(0.9)),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -1100,178 +1858,303 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     final selectedRows = _rowsByDate[selectedKey] ?? const <Map<String, dynamic>>[];
     final selectedMins = selectedRows.fold<int>(0, (acc, r) => acc + _minsOfRow(r));
     final selectedDurLabel = _fmtHrsMins(selectedMins);
-
     final dynamicPunches = _getDynamicPunchesForSelected();
-
     String exceptionStatus = 'None';
     final anomaly = _summaryData?.anomaly;
     if (anomaly != null) {
       try {
         final anomalyDate = DateTime.tryParse(anomaly.date);
         if (anomalyDate != null && _isSameDay(anomalyDate, _selectedDate)) {
-          String rawMessage = anomaly.message.toLowerCase();
-          if (rawMessage.contains('punch-out')) {
-            exceptionStatus = 'Missing Clock-Out';
-          } else if (rawMessage.contains('late')) {
-            exceptionStatus = 'Late Clock-In Detected';
-          } else if (rawMessage.contains('early')) {
-            exceptionStatus = 'Early Clock-Out Detected';
-          } else if (rawMessage.contains('anomaly') || rawMessage.contains('violation')) {
-            exceptionStatus = 'Policy Violation Found';
-          } else {
-            exceptionStatus = anomaly.message;
-          }
+          exceptionStatus = anomaly.message;
         }
       } catch (_) {}
     }
-
     final dayBeforeSelected = _selectedDate.subtract(const Duration(days: 1));
     final keyDayBefore = DateFormat('yyyy-MM-dd').format(dayBeforeSelected);
-
-    final relativeYesterdayMins = _minutesByDate[keyDayBefore] ?? 0;
-    final relativeYesterdayHours = _fmtHrsMins(relativeYesterdayMins);
-
+    final relativeYesterdayHours = _fmtHrsMins(_minutesByDate[keyDayBefore] ?? 0);
     final yesterdayCardLabel = _isSameDay(_selectedDate, DateTime.now())
         ? 'Yesterday'
-        : DateFormat('EEE d MMM').format(dayBeforeSelected);
-
+        : DateFormat('EEE d').format(dayBeforeSelected);
     final selectedRow = selectedRows.isNotEmpty ? selectedRows.first : null;
     final rawStatus = selectedRow?['status']?.toString().toUpperCase() ?? 'PENDING';
     final pillData = _getPillData(rawStatus);
-
-    // 🎯 EXTRACT SCHEDULE DATA (Prefer Roster API, Fallback to Timesheet)
     final roster = _rosterByDate[selectedKey];
-
-    final String? shiftStart = roster?.shift?.startTime
-        ?? selectedRow?['shiftStart']?.toString()
-        ?? selectedRow?['rosterStart']?.toString()
-        ?? selectedRow?['startTime']?.toString();
-
-    final String? shiftEnd = roster?.shift?.endTime
-        ?? selectedRow?['shiftEnd']?.toString()
-        ?? selectedRow?['rosterEnd']?.toString()
-        ?? selectedRow?['endTime']?.toString();
-
-    final String scheduleDuration = _calculateScheduleDuration(shiftStart, shiftEnd);
-
-    // ✅ Format Schedule String
+    final String? shiftStart = roster?.shift?.startTime ?? selectedRow?['startTime']?.toString();
+    final String? shiftEnd = roster?.shift?.endTime ?? selectedRow?['endTime']?.toString();
     final String scheduleDisplay = (shiftStart != null && shiftEnd != null)
-        ? '$shiftStart - $shiftEnd${scheduleDuration.isNotEmpty ? ' ($scheduleDuration)' : ''}'
+        ? _calculateScheduleDuration(shiftStart, shiftEnd)
         : '—';
 
-    return GradientScaffold(
-      title: 'Timesheet',
-      trailing: const Icon(Icons.save_alt_rounded),
-      child: RefreshIndicator(
-        onRefresh: _loadAllTimesheetData,
-        child: ListView(
-          padding: const EdgeInsets.only(bottom: 24),
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(left: 16, right: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back_ios),
-                    onPressed: () => _navigateToWeek(-1),
-                  ),
-                  Expanded(
-                    child: SectionHeader(
-                      _weekLabel(),
-                      icon: Icons.date_range_rounded,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.arrow_forward_ios),
-                    onPressed: () => _navigateToWeek(1),
-                  ),
-                ],
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      body: Stack(
+        children: [
+          // 1. HEADER BACKGROUND (Gradient)
+          Container(
+            height: 240,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [_kPrimaryColor, _kSecondaryColor],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
             ),
+            child: Stack(
+              children: [
+                Positioned(
+                  right: -20,
+                  top: -20,
+                  child: Icon(Icons.timer_rounded, size: 150, color: Colors.white.withOpacity(0.1)),
+                ),
+              ],
+            ),
+          ),
 
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Total: $_thisWeekStr | OT: 0h | Status: Draft',
-                    style: const TextStyle(color: Colors.black54),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
+          // 2. MAIN CONTENT
+          SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                // HEADER SECTION (Fixed)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                  child: Column(
                     children: [
-                      Expanded(child: StatCard(value: relativeYesterdayHours, label: yesterdayCardLabel)),
-                      Expanded(child: StatCard(value: '$_exceptionsCount', label: 'Exceptions')),
-                      const Expanded(child: StatCard(value: '—', label: '—')),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Timesheet', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                              SizedBox(height: 4),
+                              Text('Track & Manage', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                            ],
+                          ),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: IconButton(
+                              icon: const Icon(Icons.save_alt_rounded, color: Colors.white),
+                              onPressed: widget.onSaveDraft,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Week Navigator (Inside Header)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white.withOpacity(0.2)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.chevron_left, color: Colors.white),
+                              onPressed: () => _navigateToWeek(-1),
+                            ),
+                            Text(
+                              _weekLabel(),
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 16),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.chevron_right, color: Colors.white),
+                              onPressed: () => _navigateToWeek(1),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            if (_cells == null)
-              const Padding(
-                padding: EdgeInsets.only(top: 24),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else
-              _TimesheetWeekGrid(
-                cells: _cells,
-                weekStart: _currentWeekStart,
-                onTapDay: (date) => setState(() => _selectedDate = date),
-              ),
-
-            Card(
-              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          '${DateFormat('EEE d MMM').format(_selectedDate)} Details',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w800, fontSize: 16),
-                        ),
-                        const Spacer(),
-                        Pill(pillData.label, bg: pillData.bg, fg: pillData.fg),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-
-                    // ✅ ADDED: Schedule Row Display
-                    KeyVal('Schedule', scheduleDisplay),
-                    const SizedBox(height: 12),
-
-                    if (dynamicPunches.isEmpty)
-                      const KeyVal('Punches', 'No recorded punches for this day.')
-                    else
-                      ...dynamicPunches.map((punch) {
-                        return KeyVal(
-                          punch.type,
-                          punch.time,
-                        );
-                      }).toList(),
-
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(child: DetailTile(label: 'Total Hours', value: selectedDurLabel)),
-                        Expanded(child: DetailTile(label: 'Exceptions', value: exceptionStatus)),
-                      ],
-                    ),
-                  ],
                 ),
-              ),
+
+                // BODY SECTION (Full Screen White Sheet)
+                Expanded(
+                  child: Container(
+                    width: double.infinity,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF5F7FA),
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+                      child: _loadFuture == null && _cells == null
+                          ? const Center(child: CircularProgressIndicator())
+                          : ListView(
+                        padding: const EdgeInsets.all(20),
+                        children: [
+                          // Summary Text
+                          Center(
+                            child: Text(
+                              'Total: $_thisWeekStr  |  Exceptions: $_exceptionsCount',
+                              style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.w500, fontSize: 13),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Stats Row (Responsive)
+                          Row(
+                            children: [
+                              _buildGradientStatCard(yesterdayCardLabel, relativeYesterdayHours, [const Color(0xFF42A5F5), const Color(0xFF1E88E5)]),
+                              const SizedBox(width: 12),
+                              _buildGradientStatCard('Exceptions', '$_exceptionsCount', [const Color(0xFFEF5350), const Color(0xFFE53935)]),
+                              const SizedBox(width: 12),
+                              _buildGradientStatCard('Status', 'Draft', [const Color(0xFFFFA726), const Color(0xFFFF7043)]),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+
+                          // Week Grid Card
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 5))],
+                            ),
+                            padding: const EdgeInsets.all(16),
+                            child: _cells != null
+                                ? _TimesheetWeekGrid(
+                              cells: _cells,
+                              weekStart: _currentWeekStart,
+                              selectedDate: _selectedDate,
+                              onTapDay: (date) => setState(() => _selectedDate = date),
+                            )
+                                : const SizedBox(),
+                          ),
+
+                          const SizedBox(height: 24),
+
+                          // Selected Day Details Card
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 5))],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      DateFormat('EEEE, d MMM').format(_selectedDate),
+                                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Colors.black87),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: pillData.bg,
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        pillData.label,
+                                        style: TextStyle(color: pillData.fg, fontSize: 12, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const Divider(height: 32, color: Color(0xFFEEEEEE)),
+
+                                _DetailRow(label: 'Schedule', value: scheduleDisplay, icon: Icons.access_time),
+                                const SizedBox(height: 16),
+                                _DetailRow(label: 'Total Hours', value: selectedDurLabel, icon: Icons.timer),
+                                const SizedBox(height: 16),
+                                _DetailRow(label: 'Exceptions', value: exceptionStatus, icon: Icons.warning_amber_rounded, isError: exceptionStatus != 'None'),
+
+                                const SizedBox(height: 24),
+                                const Text('Punches', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                                const SizedBox(height: 12),
+                                if (dynamicPunches.isEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(12)),
+                                    child: const Row(
+                                      children: [
+                                        Icon(Icons.info_outline, size: 16, color: Colors.grey),
+                                        SizedBox(width: 8),
+                                        Text('No punches recorded.', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+                                      ],
+                                    ),
+                                  )
+                                else
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: dynamicPunches.map((p) => Chip(
+                                      avatar: Icon(Icons.fingerprint, size: 16, color: Colors.grey[600]),
+                                      label: Text('${p.type}: ${p.time}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                                      backgroundColor: Colors.grey[50],
+                                      side: BorderSide(color: Colors.grey[200]!),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      visualDensity: VisualDensity.compact,
+                                    )).toList(),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 40),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
+    );
+  }
+}
+
+// --- Helper Widgets ---
+
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final bool isError;
+  const _DetailRow({required this.label, required this.value, required this.icon, this.isError = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: isError ? Colors.red[50] : Colors.blue[50],
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, size: 18, color: isError ? Colors.red : Colors.blue[700]),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 12, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 2),
+              // ✅ Responsive: Fits text or wraps if needed
+              Text(
+                value,
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: isError ? Colors.red[700] : Colors.black87),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1289,82 +2172,87 @@ class _DayCell {
 class _TimesheetWeekGrid extends StatelessWidget {
   final List<_DayCell>? cells;
   final DateTime weekStart;
+  final DateTime selectedDate;
   final void Function(DateTime date)? onTapDay;
   const _TimesheetWeekGrid({
     this.cells,
     required this.weekStart,
+    required this.selectedDate,
     this.onTapDay,
   });
 
   @override
   Widget build(BuildContext context) {
-    final cells = this.cells ??
-        const [
-          _DayCell('Sun', '15', 'OFF', DayState.off),
-          _DayCell('Mon', '16', '8h', DayState.completed),
-          _DayCell('Tue', '17', '8h', DayState.completed),
-          _DayCell('Wed', '18', '8h', DayState.completed),
-          _DayCell('Thu', '19', '8h', DayState.today),
-          _DayCell('Fri', '20', '8h', DayState.pending),
-          _DayCell('Sat', '21', 'OFF', DayState.off),
-        ];
-
-    return Card(
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: GridView.count(
-          crossAxisCount: 7,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 6,
-          crossAxisSpacing: 6,
-          childAspectRatio: 0.75,
-          children: [
-            for (int i = 0; i < cells.length; i++)
-              _DayTile(
+    final cells = this.cells ?? [];
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        for (int i = 0; i < cells.length; i++)
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: _DayTile(
                 cell: cells[i],
+                // ✅ Logic Corrected: Check Date Equality
+                isSelected: () {
+                  final currentCellDate = weekStart.add(Duration(days: i));
+                  return currentCellDate.year == selectedDate.year &&
+                      currentCellDate.month == selectedDate.month &&
+                      currentCellDate.day == selectedDate.day;
+                }(),
                 onTap: () {
-                  final date = DateTime(
-                    weekStart.year,
-                    weekStart.month,
-                    weekStart.day,
-                  ).add(Duration(days: i));
+                  final date = weekStart.add(Duration(days: i));
                   onTapDay?.call(date);
                 },
               ),
-          ],
-        ),
-      ),
+            ),
+          ),
+      ],
     );
   }
 }
 
 class _DayTile extends StatelessWidget {
   final _DayCell cell;
+  final bool isSelected;
   final VoidCallback? onTap;
-  const _DayTile({required this.cell, this.onTap});
+  const _DayTile({required this.cell, required this.isSelected, this.onTap});
 
   @override
   Widget build(BuildContext context) {
     Color bg; Color fg;
-    switch (cell.state) {
-      case DayState.today:     bg = const Color(0xFF667EEA); fg = Colors.white; break;
-      case DayState.completed: bg = const Color(0xFF28A745); fg = Colors.white; break;
-      case DayState.pending:   bg = const Color(0xFFFFC107); fg = Colors.black87; break;
-      case DayState.off: bg = const Color(0xFFF8F9FA); fg = Colors.black54;
+    if (isSelected) {
+      bg = _kPrimaryColor;
+      fg = Colors.white;
+    } else {
+      switch (cell.state) {
+        case DayState.today:     bg = _kPrimaryColor.withOpacity(0.1); fg = _kPrimaryColor; break;
+        case DayState.completed: bg = const Color(0xFFE6F7E6); fg = const Color(0xFF28A745); break;
+        case DayState.pending:   bg = const Color(0xFFFFF3CD); fg = Colors.black87; break;
+        case DayState.off:       bg = const Color(0xFFF5F5F5); fg = Colors.grey; break;
+      }
     }
+
     return InkWell(
-      borderRadius: BorderRadius.circular(10),
       onTap: onTap,
-      child: Ink(
-        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
-        child: Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(cell.date, style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 16)),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(12),
+          border: isSelected ? Border.all(color: _kPrimaryColor, width: 2) : null,
+          boxShadow: isSelected ? [BoxShadow(color: _kPrimaryColor.withOpacity(0.4), blurRadius: 8, offset: const Offset(0, 4))] : null,
+        ),
+        child: Column(
+          children: [
+            // ✅ Responsive Text
+            FittedBox(fit: BoxFit.scaleDown, child: Text(cell.day, style: TextStyle(color: fg.withOpacity(0.9), fontSize: 10, fontWeight: FontWeight.w600))),
             const SizedBox(height: 4),
-            Text(cell.hours, style: TextStyle(color: fg, fontSize: 12)),
-          ]),
+            Text(cell.date, style: TextStyle(color: fg, fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(height: 4),
+            FittedBox(fit: BoxFit.scaleDown, child: Text(cell.hours, style: TextStyle(color: fg, fontSize: 9))),
+          ],
         ),
       ),
     );

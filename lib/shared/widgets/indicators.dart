@@ -50,11 +50,16 @@ class StatCard extends StatelessWidget {
 class BadgeIcon extends StatelessWidget {
   final IconData icon;
   final int badge;
-  const BadgeIcon({super.key, required this.icon, this.badge = 0});
-
+  final Color? color; // ✅ Added color parameter
+  const BadgeIcon({
+    super.key,
+    required this.icon,
+    this.badge = 0,
+    this.color, // ✅ Added to constructor
+  });
   @override
   Widget build(BuildContext context) {
-    final iconWidget = Icon(icon);
+    final iconWidget = Icon(icon, color: color); // ✅ Apply color here
     if (badge <= 0) return iconWidget;
     return Stack(
       clipBehavior: Clip.none,

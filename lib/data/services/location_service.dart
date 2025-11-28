@@ -15,7 +15,7 @@ import 'http_client.dart';
 import 'auth_service.dart';
 
 // Tracking interval set to 1 minute
-const Duration LOCATION_TRACKING_INTERVAL = Duration(seconds: 1);
+const Duration LOCATION_TRACKING_INTERVAL = Duration(seconds: 30);
 const String NOTIFICATION_CHANNEL_ID = 'my_foreground';
 const int NOTIFICATION_ID = 888;
 

@@ -132,12 +132,151 @@
 // }
 
 
-
-
+//
+//
+// import 'package:flutter/material.dart';
+// import '../../data/services/auth_api.dart';
+// import '../../data/services/auth_service.dart';
+// import '../../data/services/employee_service.dart'; // 👈 ADD THIS IMPORT
+//
+// class LoginScreen extends StatefulWidget {
+//   const LoginScreen({super.key});
+//
+//   @override
+//   State<LoginScreen> createState() => _LoginScreenState();
+// }
+//
+// class _LoginScreenState extends State<LoginScreen> {
+//   final _formKey = GlobalKey<FormState>();
+//   final _emailCtrl = TextEditingController();
+//   final _passCtrl  = TextEditingController();
+//   bool _isBusy = false;
+//   String? _error;
+//
+//   @override
+//   void dispose() {
+//     _emailCtrl.dispose(); _passCtrl.dispose(); super.dispose();
+//   }
+//
+//   Future<void> _doLogin() async {
+//     if (!_formKey.currentState!.validate()) return;
+//     setState(() {
+//       _isBusy = true;
+//       _error = null;
+//     });
+//
+//     try {
+//       await AuthApi.instance.login(
+//         email: _emailCtrl.text.trim(),
+//         password: _passCtrl.text,
+//       );
+//
+//       if (AuthService.instance.accessToken == null ||
+//           AuthService.instance.employeeId == null) {
+//         throw StateError('Login succeeded but session is incomplete.');
+//       }
+//
+//       // --- 👇 ADD THESE TWO LINES ---
+//       // 3. Check for reportees
+//       final reportees = await EmployeeService.instance.getReportees();
+//       // 4. Set the flag based on the result
+//       await AuthService.instance.setHasReportees(reportees.isNotEmpty);
+//       // --- END OF ADDITION ---
+//       if (!mounted) return;
+//
+//       // Navigate to your root/home. Adjust route if you use named routes.
+//       Navigator.of(context).pushReplacementNamed('/');
+//
+//     } catch (e) {
+//       // 6. 👇 ADD THIS LINE to reset the flag on error
+//       await AuthService.instance.setHasReportees(false);
+//       setState(() => _error = e.toString());
+//     } finally {
+//       if (mounted) setState(() => _isBusy = false);
+//     }
+//   }
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     final btnChild = _isBusy
+//         ? const SizedBox(
+//       width: 18,
+//       height: 18,
+//       child: CircularProgressIndicator(strokeWidth: 2),
+//     )
+//         : const Text('Sign in');
+//
+//     return Scaffold(
+//       body: SafeArea(
+//         child: Center(
+//           child: ConstrainedBox(
+//             constraints: const BoxConstraints(maxWidth: 420),
+//             child: Padding(
+//               padding: const EdgeInsets.all(16),
+//               child: Form(
+//                 key: _formKey,
+//                 child: Column(
+//                   mainAxisSize: MainAxisSize.min,
+//                   children: [
+//                     Text('Sign in', style: Theme.of(context).textTheme.headlineSmall),
+//                     const SizedBox(height: 16),
+//
+//                     TextFormField(
+//                       controller: _emailCtrl,
+//                       decoration: const InputDecoration(
+//                         labelText: 'Username',
+//                         prefixIcon: Icon(Icons.person_outline),
+//                       ),
+//                       textInputAction: TextInputAction.next,
+//                       validator: (v) =>
+//                       (v == null || v.trim().isEmpty) ? 'Enter username' : null,
+//                     ),
+//                     const SizedBox(height: 12),
+//
+//                     TextFormField(
+//                       controller: _passCtrl,
+//                       decoration: const InputDecoration(
+//                         labelText: 'Password',
+//                         prefixIcon: Icon(Icons.lock_outline),
+//                       ),
+//                       obscureText: true,
+//                       onFieldSubmitted: (_) => _doLogin(),
+//                       validator: (v) =>
+//                       (v == null || v.isEmpty) ? 'Enter password' : null,
+//                     ),
+//                     const SizedBox(height: 16),
+//
+//                     if (_error != null) ...[
+//                       Text(
+//                         _error!,
+//                         style: const TextStyle(color: Colors.redAccent),
+//                         textAlign: TextAlign.center,
+//                       ),
+//                       const SizedBox(height: 8),
+//                     ],
+//
+//                     SizedBox(
+//                       width: double.infinity,
+//                       child: FilledButton(
+//                         onPressed: _isBusy ? null : _doLogin,
+//                         child: btnChild,
+//                       ),
+//                     ),
+//                   ],
+//                 ),
+//               ),
+//             ),
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+// }
+// new
 import 'package:flutter/material.dart';
 import '../../data/services/auth_api.dart';
 import '../../data/services/auth_service.dart';
-import '../../data/services/employee_service.dart'; // 👈 ADD THIS IMPORT
+import '../../data/services/employee_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -176,19 +315,13 @@ class _LoginScreenState extends State<LoginScreen> {
         throw StateError('Login succeeded but session is incomplete.');
       }
 
-      // --- 👇 ADD THESE TWO LINES ---
-      // 3. Check for reportees
       final reportees = await EmployeeService.instance.getReportees();
-      // 4. Set the flag based on the result
       await AuthService.instance.setHasReportees(reportees.isNotEmpty);
-      // --- END OF ADDITION ---
-      if (!mounted) return;
 
-      // Navigate to your root/home. Adjust route if you use named routes.
+      if (!mounted) return;
       Navigator.of(context).pushReplacementNamed('/');
 
     } catch (e) {
-      // 6. 👇 ADD THIS LINE to reset the flag on error
       await AuthService.instance.setHasReportees(false);
       setState(() => _error = e.toString());
     } finally {
@@ -208,43 +341,46 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return Scaffold(
       body: SafeArea(
+        // ✅ FIX: Center + SingleChildScrollView prevents keyboard overflow
         child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
               child: Form(
                 key: _formKey,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Sign in', style: Theme.of(context).textTheme.headlineSmall),
-                    const SizedBox(height: 16),
+                    Text('Welcome Back', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    const Text('Sign in to continue', style: TextStyle(color: Colors.grey)),
+                    const SizedBox(height: 32),
 
                     TextFormField(
                       controller: _emailCtrl,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Username',
-                        prefixIcon: Icon(Icons.person_outline),
+                        prefixIcon: const Icon(Icons.person_outline),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       textInputAction: TextInputAction.next,
-                      validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Enter username' : null,
+                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter username' : null,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
 
                     TextFormField(
                       controller: _passCtrl,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Password',
-                        prefixIcon: Icon(Icons.lock_outline),
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       obscureText: true,
                       onFieldSubmitted: (_) => _doLogin(),
-                      validator: (v) =>
-                      (v == null || v.isEmpty) ? 'Enter password' : null,
+                      validator: (v) => (v == null || v.isEmpty) ? 'Enter password' : null,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 24),
 
                     if (_error != null) ...[
                       Text(
@@ -252,13 +388,17 @@ class _LoginScreenState extends State<LoginScreen> {
                         style: const TextStyle(color: Colors.redAccent),
                         textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 16),
                     ],
 
                     SizedBox(
                       width: double.infinity,
+                      height: 50,
                       child: FilledButton(
                         onPressed: _isBusy ? null : _doLogin,
+                        style: FilledButton.styleFrom(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
                         child: btnChild,
                       ),
                     ),
