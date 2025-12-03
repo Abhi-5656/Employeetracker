@@ -1234,7 +1234,7 @@ class MyDayScreenState extends State<MyDayScreen> with AutomaticKeepAliveClientM
                                 ],
                                 actions: [
                                   ActionBtn.primary(_punchButtonText, _handleClockIn),
-                                  ActionBtn.outline('View Team', widget.onViewTeam, context),
+                                  // ActionBtn.outline('View Team', widget.onViewTeam, context),
                                   ActionBtn.danger('Can\'t Make?', widget.onCantMake),
                                 ],
                               ),
@@ -1302,10 +1302,14 @@ class MyDayScreenState extends State<MyDayScreen> with AutomaticKeepAliveClientM
         final sid = await LocationService.instance.startSession(position.latitude, position.longitude, capturedAt);
         setState(() { _isClockedIn = true; _activeSessionId = sid; });
         _showLocationAlert('Success', 'Clocked In');
+        // ✅ ADD THIS: Refresh global data so pending tasks/timesheet status updates
+        _triggerFetch();
       } else {
         await LocationService.instance.endSession(_activeSessionId!, 0);
         setState(() { _isClockedIn = false; _activeSessionId = null; });
         _showLocationAlert('Success', 'Clocked Out');
+        // ✅ ADD THIS: Refresh global data
+        _triggerFetch();
       }
     } catch (e) {
       _showLocationAlert('Error', '$e');

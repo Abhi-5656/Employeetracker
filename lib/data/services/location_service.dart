@@ -160,6 +160,8 @@ class LocationService {
   }
 
   Future<String> startSession(double lat, double lng, String capturedAt) async {
+    // 1. Call Tracking API
+    // (The Backend now AUTOMATICALLY creates the timesheet punch)
     final body = {"lat": lat, "lng": lng, "capturedAt": capturedAt};
 
     final response = await ApiClient.instance.postJson('/api/tracking/clock-in', body: body);

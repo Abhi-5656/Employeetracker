@@ -66,6 +66,9 @@ class Routes {
   static String get teamVisitProofs => '/api/visits/team';
 
   // api/employee/holiday-profile-assignments/employee/1032/holidays
+// --- Leave Approvals ---
+  static String approveLeave(String id) => '/api/leave-approvals/$id/approve';
+  static String rejectLeave(String id) => '/api/leave-approvals/$id/reject';
 
   /// GET /api/employee/shifts/employee-shift-roster/{employeeId}?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
   // static String employeeShiftRoster(

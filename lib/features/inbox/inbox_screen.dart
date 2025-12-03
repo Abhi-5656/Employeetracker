@@ -1,26 +1,27 @@
-// new
+//new 2
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../data/services/notification_service.dart';
+
 import '../../data/models/notification_model.dart';
-import '../../shared/ui.dart';
+import '../../data/services/leave_service.dart';
+import '../../data/services/notification_service.dart';
 
 const Color _kPrimaryColor = Color(0xFF667EEA);
 const Color _kSecondaryColor = Color(0xFF764BA2);
 
 class InboxScreen extends StatefulWidget {
-  final VoidCallback onClockIn;
-  final VoidCallback onMarkAllRead;
-  final VoidCallback onSettings;
-  final VoidCallback onCantMake;
+  final VoidCallback? onClockIn;
+  final VoidCallback? onMarkAllRead;
+  final VoidCallback? onSettings;
+  final VoidCallback? onCantMake;
   final bool isModal;
 
   const InboxScreen({
     super.key,
-    required this.onClockIn,
-    required this.onMarkAllRead,
-    required this.onSettings,
-    required this.onCantMake,
+    this.onClockIn,
+    this.onMarkAllRead,
+    this.onSettings,
+    this.onCantMake,
     this.isModal = false,
   });
 
@@ -29,58 +30,193 @@ class InboxScreen extends StatefulWidget {
 }
 
 class _InboxScreenState extends State<InboxScreen> {
-  Future<NotificationPage>? _notificationsFuture;
+  final Map<String, bool> _processingItems = {};
 
   @override
   void initState() {
     super.initState();
-    _fetchNotifications();
-  }
-
-  void _fetchNotifications() {
-    setState(() {
-      _notificationsFuture = NotificationService.instance.fetchInbox();
-    });
+    // Fetch data on init
+    NotificationService.instance.fetchNotifications();
   }
 
   Future<void> _handleMarkAllRead() async {
     await NotificationService.instance.markAllAsRead();
-    widget.onMarkAllRead();
-    _fetchNotifications();
+    widget.onMarkAllRead?.call();
+  }
+
+  Future<void> _handleAction(String approvalId, bool isApprove) async {
+    setState(() {
+      _processingItems[approvalId] = true;
+    });
+
+    try {
+      if (isApprove) {
+        await LeaveService.instance.approveLeaveRequest(approvalId);
+        _showSnack('Request approved successfully ✅');
+      } else {
+        await LeaveService.instance.rejectLeaveRequest(approvalId);
+        _showSnack('Request rejected ❌');
+      }
+
+      // Refresh list to fetch updated status (e.g. leaveStatus: APPROVED)
+      await NotificationService.instance.fetchNotifications();
+    } catch (e) {
+      _showSnack('Action failed: ${e.toString()}');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _processingItems.remove(approvalId);
+        });
+      }
+    }
+  }
+
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      behavior: SnackBarBehavior.floating,
+    ));
   }
 
   _PillData _getNotificationStyle(AppNotification n) {
-    final title = n.title.toLowerCase();
-    if (title.contains('urgent')) return const _PillData('URGENT', Color(0xFFDC3545), Colors.white, Icons.warning_rounded);
-    if (title.contains('approved')) return const _PillData('STATUS', Color(0xFF28A745), Colors.white, Icons.check_circle_rounded);
-    return const _PillData('INFO', Colors.grey, Colors.white, Icons.info_outline);
+    final title = n.title.toUpperCase();
+    final type = n.type?.toUpperCase() ?? '';
+
+    // Check status for style updates
+    final status = n.data['leaveStatus']?.toString().toUpperCase() ??
+        n.data['status']?.toString().toUpperCase() ?? '';
+
+    if (status == 'APPROVED') return const _PillData('APPROVED', Color(0xFF28A745), Colors.white, Icons.check_circle_rounded);
+    if (status == 'REJECTED') return const _PillData('REJECTED', Color(0xFFDC3545), Colors.white, Icons.cancel_rounded);
+
+    if (type.contains('LEAVE') || type.contains('APPROVAL') || title.contains('LEAVE')) {
+      return const _PillData('ACTION', Colors.orange, Colors.white, Icons.gavel_rounded);
+    }
+    if (title.contains('URGENT')) return const _PillData('URGENT', Color(0xFFDC3545), Colors.white, Icons.warning_rounded);
+
+    return const _PillData('INFO', Colors.blueGrey, Colors.white, Icons.info_outline);
   }
 
   Widget _notificationRow(AppNotification n) {
     final style = _getNotificationStyle(n);
+
+    // 1. Identify Notification Type
+    final type = n.type?.toUpperCase() ?? '';
+    final subType = n.data['notificationType']?.toString().toUpperCase() ?? '';
+    final title = n.title.toUpperCase();
+
+    final bool isLeaveType = type.contains('LEAVE') ||
+        type.contains('APPROVAL') ||
+        subType.contains('LEAVE') ||
+        subType.contains('APPROVAL') ||
+        title.contains('LEAVE REQUEST') ||
+        title.contains('APPROVAL');
+
+    // 2. Identify Current Status (from payload)
+    final status = n.data['leaveStatus']?.toString().toUpperCase() ??
+        n.data['status']?.toString().toUpperCase() ?? '';
+
+    // 🟢 CRITICAL LOGIC: Hide buttons if already Approved or Rejected
+    final bool isPending = status != 'APPROVED' && status != 'REJECTED';
+
+    String? approvalId = n.leaveApprovalId;
+
+    // Show buttons ONLY if: It's a leave type + Status is Pending + We have an ID
+    final bool showButtons = isLeaveType && isPending && approvalId != null;
+
+    final bool isProcessing = approvalId != null && _processingItems[approvalId] == true;
+
     return Padding(
       padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: style.bg.withOpacity(0.1), shape: BoxShape.circle),
-            child: Icon(style.icon, color: style.bg, size: 20),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: style.bg.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(style.icon, color: style.bg, size: 20),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      n.title,
+                      style: TextStyle(
+                        fontWeight: !n.isRead ? FontWeight.bold : FontWeight.normal,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      n.messageBody,
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Text(
+                          DateFormat('MMM d, HH:mm').format(n.createdAt),
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                        if (status.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: style.bg.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              status,
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: style.bg),
+                            ),
+                          )
+                        ]
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(n.title, style: TextStyle(fontWeight: !n.isRead ? FontWeight.bold : FontWeight.normal, fontSize: 16)),
-                const SizedBox(height: 4),
-                Text(n.messageBody, style: const TextStyle(color: Colors.grey)),
-                const SizedBox(height: 8),
-                Text(DateFormat('MMM d, HH:mm').format(n.createdAt), style: const TextStyle(fontSize: 12, color: Colors.grey)),
-              ],
-            ),
-          ),
+
+          // 🟢 Only show buttons if pending
+          if (showButtons) ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1, thickness: 0.5),
+            const SizedBox(height: 8),
+            if (isProcessing)
+              const Center(child: Padding(
+                padding: EdgeInsets.all(8.0),
+                child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+              ))
+            else
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton.icon(
+                    onPressed: () => _handleAction(approvalId!, false),
+                    icon: const Icon(Icons.close, size: 18),
+                    label: const Text('Reject'),
+                    style: TextButton.styleFrom(foregroundColor: Colors.red),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: () => _handleAction(approvalId!, true),
+                    icon: const Icon(Icons.check, size: 18),
+                    label: const Text('Approve'),
+                    style: FilledButton.styleFrom(backgroundColor: const Color(0xFF28A745)),
+                  ),
+                ],
+              )
+          ]
         ],
       ),
     );
@@ -95,7 +231,11 @@ class _InboxScreenState extends State<InboxScreen> {
           Container(
             height: 200,
             decoration: const BoxDecoration(
-                gradient: LinearGradient(colors: [_kPrimaryColor, _kSecondaryColor], begin: Alignment.topLeft, end: Alignment.bottomRight)
+              gradient: LinearGradient(
+                colors: [_kPrimaryColor, _kSecondaryColor],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
             ),
           ),
           SafeArea(
@@ -106,8 +246,15 @@ class _InboxScreenState extends State<InboxScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Inbox', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                      IconButton(onPressed: _handleMarkAllRead, icon: const Icon(Icons.done_all, color: Colors.white), tooltip: 'Mark all read'),
+                      const Text(
+                        'Inbox',
+                        style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        onPressed: _handleMarkAllRead,
+                        icon: const Icon(Icons.done_all, color: Colors.white),
+                        tooltip: 'Mark all read',
+                      ),
                     ],
                   ),
                 ),
@@ -119,20 +266,47 @@ class _InboxScreenState extends State<InboxScreen> {
                     ),
                     child: ClipRRect(
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-                      child: FutureBuilder<NotificationPage>(
-                        future: _notificationsFuture,
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-                          final list = snapshot.data?.content ?? [];
-                          if (list.isEmpty) return const Center(child: Text('No notifications'));
+                      child: ValueListenableBuilder<List<AppNotification>>(
+                        valueListenable: NotificationService.instance.notificationsNotifier,
+                        builder: (context, list, child) {
+                          if (list.isEmpty) {
+                            return const Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.inbox_outlined, size: 48, color: Colors.grey),
+                                  SizedBox(height: 12),
+                                  Text('No notifications', style: TextStyle(color: Colors.grey)),
+                                ],
+                              ),
+                            );
+                          }
 
-                          return ListView.separated(
-                            padding: const EdgeInsets.all(20),
-                            itemCount: list.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 12),
-                            itemBuilder: (ctx, i) => Container(
-                              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))]),
-                              child: _notificationRow(list[i]),
+                          return RefreshIndicator(
+                            onRefresh: () async {
+                              await NotificationService.instance.fetchNotifications();
+                            },
+                            child: ListView.separated(
+                              padding: const EdgeInsets.all(20),
+                              itemCount: list.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 12),
+                              itemBuilder: (ctx, i) => Container(
+                                decoration: BoxDecoration(
+                                  color: list[i].isRead ? Colors.white : Colors.blue.withOpacity(0.05),
+                                  borderRadius: BorderRadius.circular(16),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.03),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 4),
+                                    )
+                                  ],
+                                  border: !list[i].isRead
+                                      ? Border.all(color: _kPrimaryColor.withOpacity(0.3))
+                                      : null,
+                                ),
+                                child: _notificationRow(list[i]),
+                              ),
                             ),
                           );
                         },
@@ -156,6 +330,168 @@ class _PillData {
   final IconData icon;
   const _PillData(this.label, this.bg, this.fg, this.icon);
 }
+
+
+
+
+// // new
+// import 'package:flutter/material.dart';
+// import 'package:intl/intl.dart';
+// import '../../data/services/notification_service.dart';
+// import '../../data/models/notification_model.dart';
+// import '../../shared/ui.dart';
+//
+// const Color _kPrimaryColor = Color(0xFF667EEA);
+// const Color _kSecondaryColor = Color(0xFF764BA2);
+//
+// class InboxScreen extends StatefulWidget {
+//   final VoidCallback onClockIn;
+//   final VoidCallback onMarkAllRead;
+//   final VoidCallback onSettings;
+//   final VoidCallback onCantMake;
+//   final bool isModal;
+//
+//   const InboxScreen({
+//     super.key,
+//     required this.onClockIn,
+//     required this.onMarkAllRead,
+//     required this.onSettings,
+//     required this.onCantMake,
+//     this.isModal = false,
+//   });
+//
+//   @override
+//   State<InboxScreen> createState() => _InboxScreenState();
+// }
+//
+// class _InboxScreenState extends State<InboxScreen> {
+//   Future<NotificationPage>? _notificationsFuture;
+//
+//   @override
+//   void initState() {
+//     super.initState();
+//     _fetchNotifications();
+//   }
+//
+//   void _fetchNotifications() {
+//     setState(() {
+//       _notificationsFuture = NotificationService.instance.fetchInbox();
+//     });
+//   }
+//
+//   Future<void> _handleMarkAllRead() async {
+//     await NotificationService.instance.markAllAsRead();
+//     widget.onMarkAllRead();
+//     _fetchNotifications();
+//   }
+//
+//   _PillData _getNotificationStyle(AppNotification n) {
+//     final title = n.title.toLowerCase();
+//     if (title.contains('urgent')) return const _PillData('URGENT', Color(0xFFDC3545), Colors.white, Icons.warning_rounded);
+//     if (title.contains('approved')) return const _PillData('STATUS', Color(0xFF28A745), Colors.white, Icons.check_circle_rounded);
+//     return const _PillData('INFO', Colors.grey, Colors.white, Icons.info_outline);
+//   }
+//
+//   Widget _notificationRow(AppNotification n) {
+//     final style = _getNotificationStyle(n);
+//     return Padding(
+//       padding: const EdgeInsets.all(16),
+//       child: Row(
+//         crossAxisAlignment: CrossAxisAlignment.start,
+//         children: [
+//           Container(
+//             padding: const EdgeInsets.all(10),
+//             decoration: BoxDecoration(color: style.bg.withOpacity(0.1), shape: BoxShape.circle),
+//             child: Icon(style.icon, color: style.bg, size: 20),
+//           ),
+//           const SizedBox(width: 16),
+//           Expanded(
+//             child: Column(
+//               crossAxisAlignment: CrossAxisAlignment.start,
+//               children: [
+//                 Text(n.title, style: TextStyle(fontWeight: !n.isRead ? FontWeight.bold : FontWeight.normal, fontSize: 16)),
+//                 const SizedBox(height: 4),
+//                 Text(n.messageBody, style: const TextStyle(color: Colors.grey)),
+//                 const SizedBox(height: 8),
+//                 Text(DateFormat('MMM d, HH:mm').format(n.createdAt), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+//               ],
+//             ),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       backgroundColor: const Color(0xFFF5F7FA),
+//       body: Stack(
+//         children: [
+//           Container(
+//             height: 200,
+//             decoration: const BoxDecoration(
+//                 gradient: LinearGradient(colors: [_kPrimaryColor, _kSecondaryColor], begin: Alignment.topLeft, end: Alignment.bottomRight)
+//             ),
+//           ),
+//           SafeArea(
+//             child: Column(
+//               children: [
+//                 Padding(
+//                   padding: const EdgeInsets.all(16.0),
+//                   child: Row(
+//                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
+//                     children: [
+//                       const Text('Inbox', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+//                       IconButton(onPressed: _handleMarkAllRead, icon: const Icon(Icons.done_all, color: Colors.white), tooltip: 'Mark all read'),
+//                     ],
+//                   ),
+//                 ),
+//                 Expanded(
+//                   child: Container(
+//                     decoration: const BoxDecoration(
+//                       color: Color(0xFFF5F7FA),
+//                       borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+//                     ),
+//                     child: ClipRRect(
+//                       borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+//                       child: FutureBuilder<NotificationPage>(
+//                         future: _notificationsFuture,
+//                         builder: (context, snapshot) {
+//                           if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+//                           final list = snapshot.data?.content ?? [];
+//                           if (list.isEmpty) return const Center(child: Text('No notifications'));
+//
+//                           return ListView.separated(
+//                             padding: const EdgeInsets.all(20),
+//                             itemCount: list.length,
+//                             separatorBuilder: (_, __) => const SizedBox(height: 12),
+//                             itemBuilder: (ctx, i) => Container(
+//                               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))]),
+//                               child: _notificationRow(list[i]),
+//                             ),
+//                           );
+//                         },
+//                       ),
+//                     ),
+//                   ),
+//                 ),
+//               ],
+//             ),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+// }
+//
+// class _PillData {
+//   final String label;
+//   final Color bg;
+//   final Color fg;
+//   final IconData icon;
+//   const _PillData(this.label, this.bg, this.fg, this.icon);
+// }
 // import 'package:flutter/material.dart';
 // import 'package:intl/intl.dart';
 //
