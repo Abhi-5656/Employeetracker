@@ -1322,14 +1322,45 @@ class MyDayScreenState extends State<MyDayScreen> with AutomaticKeepAliveClientM
 class _GreetingCard extends StatelessWidget {
   final String name;
   final String sub;
-  const _GreetingCard({required this.name, required this.sub});
+
+  const _GreetingCard({
+    super.key,
+    required this.name,
+    required this.sub
+  });
+
+  // Helper to determine the greeting based on local time
+  String get _greeting {
+    final hour = DateTime.now().hour;
+    if (hour < 12) {
+      return 'Good Morning,';
+    } else if (hour < 17) {
+      return 'Good Afternoon,';
+    } else {
+      return 'Good Evening,';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Good Day,', style: const TextStyle(color: Colors.white70, fontSize: 18)),
-      Text('$name! 👋', style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
-      const SizedBox(height: 4),
-      Text(sub, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-    ]);
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Using the dynamic getter here
+          Text(
+              _greeting,
+              style: const TextStyle(color: Colors.white70, fontSize: 18)
+          ),
+          Text(
+              '$name! 👋',
+              style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)
+          ),
+          const SizedBox(height: 4),
+          Text(
+              sub,
+              style: const TextStyle(color: Colors.white70, fontSize: 12)
+          ),
+        ]
+    );
   }
 }
