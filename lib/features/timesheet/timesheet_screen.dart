@@ -1413,11 +1413,10 @@ class TimesheetScreen extends StatefulWidget {
 }
 
 class _TimesheetScreenState extends State<TimesheetScreen>
-    with AutomaticKeepAliveClientMixin<TimesheetScreen>
-{
+    with AutomaticKeepAliveClientMixin<TimesheetScreen> {
   // State variables
   String _yesterdayStr = '—';
-  String _thisWeekStr  = '—';
+  String _thisWeekStr = '—';
   int _exceptionsCount = 0;
   AttendanceTimesheetData? _summaryData;
 
@@ -1460,7 +1459,7 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       _rowsByDate.clear();
       _rosterByDate.clear();
       _yesterdayStr = '—';
-      _thisWeekStr  = '—';
+      _thisWeekStr = '—';
       _exceptionsCount = 0;
       _summaryData = null;
       _minutesByDate.clear();
@@ -1479,7 +1478,8 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       // 1. Fetch Summary
       try {
         if (_isSameDay(_currentWeekStart, systemWeekStart)) {
-          final summary = await DashboardService.instance.getAttendanceTimesheetData();
+          final summary = await DashboardService.instance
+              .getAttendanceTimesheetData();
           final yesterday = DateTime.now().subtract(const Duration(days: 1));
           final yDayAbbrev = DateFormat('E').format(yesterday);
 
@@ -1488,10 +1488,11 @@ class _TimesheetScreenState extends State<TimesheetScreen>
             orElse: () => DailyHour(day: yDayAbbrev, hours: 0.0),
           );
 
-          final totalWeekMinutes = summary.dailyHours.fold<int>(0, (sum, dh) => sum + dh.totalMinutes);
+          final totalWeekMinutes = summary.dailyHours.fold<int>(
+              0, (sum, dh) => sum + dh.totalMinutes);
 
           _yesterdayStr = _fmtHrsMins(yDailyHour.totalMinutes);
-          _thisWeekStr  = _fmtHrsMins(totalWeekMinutes);
+          _thisWeekStr = _fmtHrsMins(totalWeekMinutes);
           _exceptionsCount = summary.anomaly != null ? 1 : 0;
           _summaryData = summary;
         }
@@ -1522,7 +1523,13 @@ class _TimesheetScreenState extends State<TimesheetScreen>
 
       // Process Data
       String? _keyOf(Map<String, dynamic> row) {
-        for (final k in const ['date', 'workDate', 'calendarDate', 'day', 'forDate']) {
+        for (final k in const [
+          'date',
+          'workDate',
+          'calendarDate',
+          'day',
+          'forDate'
+        ]) {
           final v = row[k];
           if (v is String && v.isNotEmpty) {
             final d = DateTime.tryParse(v);
@@ -1546,11 +1553,13 @@ class _TimesheetScreenState extends State<TimesheetScreen>
 
       final Map<String, int> minutesByDateLocal = {
         for (int i = 0; i < 7; i++)
-          DateFormat('yyyy-MM-dd').format(_currentWeekStart.add(Duration(days: i))): 0
+          DateFormat('yyyy-MM-dd').format(
+              _currentWeekStart.add(Duration(days: i))): 0
       };
       _rowsByDate.forEach((key, list) {
         for (final r in list) {
-          minutesByDateLocal[key] = (minutesByDateLocal[key] ?? 0) + _minsOfRow(r);
+          minutesByDateLocal[key] =
+              (minutesByDateLocal[key] ?? 0) + _minsOfRow(r);
         }
       });
 
@@ -1559,14 +1568,16 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       for (int i = 0; i < 7; i++) {
         final d = _currentWeekStart.add(Duration(days: i));
         final dayAbbrev = DateFormat('E').format(d);
-        final dateStr   = DateFormat('d').format(d);
-        final mins = minutesByDateLocal[DateFormat('yyyy-MM-dd').format(d)] ?? 0;
+        final dateStr = DateFormat('d').format(d);
+        final mins = minutesByDateLocal[DateFormat('yyyy-MM-dd').format(d)] ??
+            0;
         final isSameDay = _isSameDay(d, today);
 
         String hoursLabel;
         DayState state;
         if (mins <= 0) {
-          final isWeekend = d.weekday == DateTime.sunday || d.weekday == DateTime.saturday;
+          final isWeekend = d.weekday == DateTime.sunday ||
+              d.weekday == DateTime.saturday;
           hoursLabel = isWeekend ? 'OFF' : '0h';
           state = isWeekend
               ? DayState.off
@@ -1584,13 +1595,12 @@ class _TimesheetScreenState extends State<TimesheetScreen>
         _minutesByDate.clear();
         _minutesByDate.addAll(minutesByDateLocal);
       });
-
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _cells = _buildEmptyCellsForWeek(_currentWeekStart);
         _yesterdayStr = 'Error';
-        _thisWeekStr  = 'Error';
+        _thisWeekStr = 'Error';
       });
     }
   }
@@ -1598,15 +1608,20 @@ class _TimesheetScreenState extends State<TimesheetScreen>
   DateTime _getSystemWeekStart() {
     final now = DateTime.now();
     final daysFromSunday = now.weekday % 7;
-    return DateTime(now.year, now.month, now.day).subtract(Duration(days: daysFromSunday));
+    return DateTime(now.year, now.month, now.day).subtract(
+        Duration(days: daysFromSunday));
   }
 
   void _navigateToWeek(int offset) {
     final newWeekStart = _currentWeekStart.add(Duration(days: offset * 7));
-    final daysFromWeekStart = _selectedDate.difference(_currentWeekStart).inDays;
+    final daysFromWeekStart = _selectedDate
+        .difference(_currentWeekStart)
+        .inDays;
     final newSelectedDate = newWeekStart.add(Duration(days: daysFromWeekStart));
     final newWeekEnd = newWeekStart.add(const Duration(days: 6));
-    final finalSelectedDate = newSelectedDate.isAfter(newWeekEnd) ? newWeekEnd : newSelectedDate;
+    final finalSelectedDate = newSelectedDate.isAfter(newWeekEnd)
+        ? newWeekEnd
+        : newSelectedDate;
 
     setState(() {
       _currentWeekStart = newWeekStart;
@@ -1630,7 +1645,8 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     if (totalWorkMinutes is num) return totalWorkMinutes.toInt();
     final totalMinsNum = row['totalMinutes'] ?? row['totalDurationMinutes'];
     if (totalMinsNum is num) return totalMinsNum.toInt();
-    final rawHours = row['totalHours'] ?? row['totalDuration'] ?? row['duration'];
+    final rawHours = row['totalHours'] ?? row['totalDuration'] ??
+        row['duration'];
     if (rawHours != null) {
       if (rawHours is num) return (rawHours * 60).round();
       if (rawHours is String) {
@@ -1664,11 +1680,13 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       final m = int.tryParse(parts[1]) ?? 0;
       return h * 60 + m;
     }
-    final inV  = row['checkInTime'] ?? row['inTime'] ?? row['startTime'];
+    final inV = row['checkInTime'] ?? row['inTime'] ?? row['startTime'];
     final outV = row['checkOutTime'] ?? row['outTime'] ?? row['endTime'];
-    final a = _safeTime(inV), b = _safeTime(outV);
+    final a = _safeTime(inV),
+        b = _safeTime(outV);
     if (a == '—' || b == '—') return 0;
-    var s = _toMin(a), e = _toMin(b);
+    var s = _toMin(a),
+        e = _toMin(b);
     if (e < s) e += 24 * 60;
     return e - s;
   }
@@ -1679,12 +1697,14 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     for (int i = 0; i < 7; i++) {
       final d = start.add(Duration(days: i));
       final isToday = _isSameDay(d, now);
-      final isWeekend = d.weekday == DateTime.sunday || d.weekday == DateTime.saturday;
+      final isWeekend = d.weekday == DateTime.sunday ||
+          d.weekday == DateTime.saturday;
       list.add(_DayCell(
         DateFormat('E').format(d),
         DateFormat('d').format(d),
         isWeekend ? 'OFF' : '0h',
-        isWeekend ? DayState.off : (isToday ? DayState.today : DayState.pending),
+        isWeekend ? DayState.off : (isToday ? DayState.today : DayState
+            .pending),
       ));
     }
     return list;
@@ -1692,7 +1712,8 @@ class _TimesheetScreenState extends State<TimesheetScreen>
 
   String _weekLabel() {
     final left = DateFormat('d MMM').format(_currentWeekStart);
-    final right = DateFormat('d MMM').format(_currentWeekStart.add(const Duration(days: 6)));
+    final right = DateFormat('d MMM').format(
+        _currentWeekStart.add(const Duration(days: 6)));
     return '$left - $right';
   }
 
@@ -1717,24 +1738,34 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     for (final r in rows) {
       final pe = r['punchEvents'];
       if (pe is List) {
-        for (final e in pe) { if (e is Map<String, dynamic>) evts.add(e); }
+        for (final e in pe) {
+          if (e is Map<String, dynamic>) evts.add(e);
+        }
       }
       final e2 = r['events'];
       if (e2 is List) {
-        for (final e in e2) { if (e is Map<String, dynamic>) evts.add(e); }
+        for (final e in e2) {
+          if (e is Map<String, dynamic>) evts.add(e);
+        }
       }
     }
     evts.sort((a, b) {
-      final ta = _asDateTime(a['eventTime'] ?? a['time'] ?? a['timestamp'] ?? a['at']) ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final tb = _asDateTime(b['eventTime'] ?? b['time'] ?? b['timestamp'] ?? b['at']) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final ta = _asDateTime(
+          a['eventTime'] ?? a['time'] ?? a['timestamp'] ?? a['at']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final tb = _asDateTime(
+          b['eventTime'] ?? b['time'] ?? b['timestamp'] ?? b['at']) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
       return ta.compareTo(tb);
     });
     final dynamicPunches = <PunchEventDetail>[];
     int punchSet = 0;
     for (final e in evts) {
-      final dt = _asDateTime(e['eventTime'] ?? e['time'] ?? e['timestamp'] ?? e['at']);
+      final dt = _asDateTime(
+          e['eventTime'] ?? e['time'] ?? e['timestamp'] ?? e['at']);
       if (dt == null || !_isSameDay(dt, _selectedDate)) continue;
-      final tRaw = (e['punchType'] ?? e['type'] ?? e['eventType'] ?? e['action'] ?? '').toString().toUpperCase();
+      final tRaw = (e['punchType'] ?? e['type'] ?? e['eventType'] ??
+          e['action'] ?? '').toString().toUpperCase();
       String typeLabel = 'EVENT';
       if (tRaw.contains('IN')) {
         punchSet++;
@@ -1745,7 +1776,8 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       } else if (tRaw.contains('BREAK')) {
         typeLabel = 'BREAK';
       }
-      dynamicPunches.add(PunchEventDetail(type: typeLabel, time: _fmt(dt), dateKey: key));
+      dynamicPunches.add(
+          PunchEventDetail(type: typeLabel, time: _fmt(dt), dateKey: key));
     }
     return dynamicPunches;
   }
@@ -1767,13 +1799,16 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       case 'PENDING':
       case 'SUBMITTED':
       case 'IN PROGRESS':
-        return const _PillData('In Progress', Color(0xFFFFC107), Colors.black87);
+        return const _PillData(
+            'In Progress', Color(0xFFFFC107), Colors.black87);
       case 'VIOLATION':
       case 'EXCEPTION':
       case 'REJECTED':
         return const _PillData('Violation', Color(0xFFDC3545), Colors.white);
       default:
-        final label = status.isNotEmpty && status.length < 20 ? status : 'Pending';
+        final label = status.isNotEmpty && status.length < 20
+            ? status
+            : 'Pending';
         return _PillData(label, const Color(0xFFF8F9FA), Colors.black54);
     }
   }
@@ -1786,7 +1821,9 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       final m = int.parse(parts[1]);
       final dt = DateTime(2022, 1, 1, h, m);
       return DateFormat('h:mm a').format(dt);
-    } catch (_) { return time24; }
+    } catch (_) {
+      return time24;
+    }
   }
 
   String _calculateScheduleDuration(String? start, String? end) {
@@ -1795,7 +1832,8 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       final now = DateTime.now();
       DateTime parseTime(String t) {
         final p = t.split(':');
-        return DateTime(now.year, now.month, now.day, int.parse(p[0]), int.parse(p[1]));
+        return DateTime(
+            now.year, now.month, now.day, int.parse(p[0]), int.parse(p[1]));
       }
       final s = parseTime(start);
       final e = parseTime(end);
@@ -1804,25 +1842,35 @@ class _TimesheetScreenState extends State<TimesheetScreen>
       final h = diff.inHours;
       final m = diff.inMinutes.remainder(60);
       String durationStr = '';
-      if (h > 0 && m > 0) durationStr = ' (${h}h ${m}m)';
-      else if (h > 0) durationStr = ' (${h}h)';
+      if (h > 0 && m > 0)
+        durationStr = ' (${h}h ${m}m)';
+      else if (h > 0)
+        durationStr = ' (${h}h)';
       else if (m > 0) durationStr = ' (${m}m)';
       final start12 = _convertTo12Hour(start);
       final end12 = _convertTo12Hour(end);
       return '$start12 - $end12$durationStr';
-    } catch (_) { return ''; }
+    } catch (_) {
+      return '';
+    }
   }
 
   // 🎨 UI Helper: Enhanced Gradient Stat Card (Responsive)
-  Widget _buildGradientStatCard(String label, String value, List<Color> colors) {
+  Widget _buildGradientStatCard(String label, String value,
+      List<Color> colors) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8), // Reduced horizontal padding
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        // Reduced horizontal padding
         decoration: BoxDecoration(
-          gradient: LinearGradient(colors: colors, begin: Alignment.topLeft, end: Alignment.bottomRight),
+          gradient: LinearGradient(colors: colors,
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight),
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
-            BoxShadow(color: colors.first.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4)),
+            BoxShadow(color: colors.first.withOpacity(0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 4)),
           ],
         ),
         child: Column(
@@ -1832,7 +1880,9 @@ class _TimesheetScreenState extends State<TimesheetScreen>
               fit: BoxFit.scaleDown,
               child: Text(
                 value,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white),
+                style: const TextStyle(fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white),
               ),
             ),
             const SizedBox(height: 4),
@@ -1840,7 +1890,9 @@ class _TimesheetScreenState extends State<TimesheetScreen>
               fit: BoxFit.scaleDown,
               child: Text(
                 label,
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white.withOpacity(0.9)),
+                style: TextStyle(fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white.withOpacity(0.9)),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -1854,9 +1906,12 @@ class _TimesheetScreenState extends State<TimesheetScreen>
   Widget build(BuildContext context) {
     super.build(context);
 
+    // --- Existing Logic Preserved ---
     final selectedKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
-    final selectedRows = _rowsByDate[selectedKey] ?? const <Map<String, dynamic>>[];
-    final selectedMins = selectedRows.fold<int>(0, (acc, r) => acc + _minsOfRow(r));
+    final selectedRows = _rowsByDate[selectedKey] ??
+        const <Map<String, dynamic>>[];
+    final selectedMins = selectedRows.fold<int>(
+        0, (acc, r) => acc + _minsOfRow(r));
     final selectedDurLabel = _fmtHrsMins(selectedMins);
     final dynamicPunches = _getDynamicPunchesForSelected();
     String exceptionStatus = 'None';
@@ -1871,25 +1926,30 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     }
     final dayBeforeSelected = _selectedDate.subtract(const Duration(days: 1));
     final keyDayBefore = DateFormat('yyyy-MM-dd').format(dayBeforeSelected);
-    final relativeYesterdayHours = _fmtHrsMins(_minutesByDate[keyDayBefore] ?? 0);
+    final relativeYesterdayHours = _fmtHrsMins(
+        _minutesByDate[keyDayBefore] ?? 0);
     final yesterdayCardLabel = _isSameDay(_selectedDate, DateTime.now())
         ? 'Yesterday'
         : DateFormat('EEE d').format(dayBeforeSelected);
     final selectedRow = selectedRows.isNotEmpty ? selectedRows.first : null;
-    final rawStatus = selectedRow?['status']?.toString().toUpperCase() ?? 'PENDING';
+    final rawStatus = selectedRow?['status']?.toString().toUpperCase() ??
+        'PENDING';
     final pillData = _getPillData(rawStatus);
     final roster = _rosterByDate[selectedKey];
-    final String? shiftStart = roster?.shift?.startTime ?? selectedRow?['startTime']?.toString();
-    final String? shiftEnd = roster?.shift?.endTime ?? selectedRow?['endTime']?.toString();
+    final String? shiftStart = roster?.shift?.startTime ??
+        selectedRow?['startTime']?.toString();
+    final String? shiftEnd = roster?.shift?.endTime ??
+        selectedRow?['endTime']?.toString();
     final String scheduleDisplay = (shiftStart != null && shiftEnd != null)
         ? _calculateScheduleDuration(shiftStart, shiftEnd)
         : '—';
+    // --------------------------------
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       body: Stack(
         children: [
-          // 1. HEADER BACKGROUND (Gradient)
+          // 1. HEADER BACKGROUND (Gradient) - Preserved
           Container(
             height: 240,
             decoration: const BoxDecoration(
@@ -1904,7 +1964,8 @@ class _TimesheetScreenState extends State<TimesheetScreen>
                 Positioned(
                   right: -20,
                   top: -20,
-                  child: Icon(Icons.timer_rounded, size: 150, color: Colors.white.withOpacity(0.1)),
+                  child: Icon(Icons.timer_rounded, size: 150,
+                      color: Colors.white.withOpacity(0.1)),
                 ),
               ],
             ),
@@ -1926,46 +1987,63 @@ class _TimesheetScreenState extends State<TimesheetScreen>
                           const Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Timesheet', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                              Text('My Timesheet', style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.bold)),
                               SizedBox(height: 4),
-                              Text('Track & Manage', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                              Text('Track & Manage', style: TextStyle(
+                                  color: Colors.white70, fontSize: 14)),
                             ],
                           ),
+                          // --- NEW: Refresh Button Added Here ---
                           Container(
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.2),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: IconButton(
-                              icon: const Icon(Icons.save_alt_rounded, color: Colors.white),
-                              onPressed: widget.onSaveDraft,
+                              icon: const Icon(
+                                  Icons.refresh, color: Colors.white),
+                              tooltip: 'Refresh Data',
+                              onPressed: () {
+                                // Calls the existing data loading function
+                                _loadAllTimesheetData();
+                              },
                             ),
                           ),
+                          // --------------------------------------
                         ],
                       ),
                       const SizedBox(height: 24),
 
-                      // Week Navigator (Inside Header)
+                      // Week Navigator (Inside Header) - Preserved
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 6),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.15),
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white.withOpacity(0.2)),
+                          border: Border.all(color: Colors.white.withOpacity(
+                              0.2)),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.chevron_left, color: Colors.white),
+                              icon: const Icon(
+                                  Icons.chevron_left, color: Colors.white),
                               onPressed: () => _navigateToWeek(-1),
                             ),
                             Text(
                               _weekLabel(),
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 16),
+                              style: const TextStyle(color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 16),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.chevron_right, color: Colors.white),
+                              icon: const Icon(
+                                  Icons.chevron_right, color: Colors.white),
                               onPressed: () => _navigateToWeek(1),
                             ),
                           ],
@@ -1981,129 +2059,197 @@ class _TimesheetScreenState extends State<TimesheetScreen>
                     width: double.infinity,
                     decoration: const BoxDecoration(
                       color: Color(0xFFF5F7FA),
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+                      borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(30)),
                     ),
                     child: ClipRRect(
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+                      borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(30)),
                       child: _loadFuture == null && _cells == null
                           ? const Center(child: CircularProgressIndicator())
-                          : ListView(
-                        padding: const EdgeInsets.all(20),
-                        children: [
-                          // Summary Text
-                          Center(
-                            child: Text(
-                              'Total: $_thisWeekStr  |  Exceptions: $_exceptionsCount',
-                              style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.w500, fontSize: 13),
+                      // --- NEW: RefreshIndicator Wrapper ---
+                          : RefreshIndicator(
+                        onRefresh: _loadAllTimesheetData,
+                        color: _kPrimaryColor,
+                        child: ListView(
+                          padding: const EdgeInsets.all(20),
+                          children: [
+                            // Summary Text - Preserved
+                            Center(
+                              child: Text(
+                                'Total: $_thisWeekStr  |  Exceptions: $_exceptionsCount',
+                                style: TextStyle(color: Colors.grey[600],
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 13),
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 16),
+                            const SizedBox(height: 16),
 
-                          // Stats Row (Responsive)
-                          Row(
-                            children: [
-                              _buildGradientStatCard(yesterdayCardLabel, relativeYesterdayHours, [const Color(0xFF42A5F5), const Color(0xFF1E88E5)]),
-                              const SizedBox(width: 12),
-                              _buildGradientStatCard('Exceptions', '$_exceptionsCount', [const Color(0xFFEF5350), const Color(0xFFE53935)]),
-                              const SizedBox(width: 12),
-                              _buildGradientStatCard('Status', 'Draft', [const Color(0xFFFFA726), const Color(0xFFFF7043)]),
-                            ],
-                          ),
-                          const SizedBox(height: 24),
-
-                          // Week Grid Card
-                          Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(20),
-                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 5))],
-                            ),
-                            padding: const EdgeInsets.all(16),
-                            child: _cells != null
-                                ? _TimesheetWeekGrid(
-                              cells: _cells,
-                              weekStart: _currentWeekStart,
-                              selectedDate: _selectedDate,
-                              onTapDay: (date) => setState(() => _selectedDate = date),
-                            )
-                                : const SizedBox(),
-                          ),
-
-                          const SizedBox(height: 24),
-
-                          // Selected Day Details Card
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(24),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(20),
-                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 5))],
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                            // Stats Row (Responsive) - Preserved
+                            Row(
                               children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      DateFormat('EEEE, d MMM').format(_selectedDate),
-                                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Colors.black87),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        color: pillData.bg,
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: Text(
-                                        pillData.label,
-                                        style: TextStyle(color: pillData.fg, fontSize: 12, fontWeight: FontWeight.bold),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const Divider(height: 32, color: Color(0xFFEEEEEE)),
-
-                                _DetailRow(label: 'Schedule', value: scheduleDisplay, icon: Icons.access_time),
-                                const SizedBox(height: 16),
-                                _DetailRow(label: 'Total Hours', value: selectedDurLabel, icon: Icons.timer),
-                                const SizedBox(height: 16),
-                                _DetailRow(label: 'Exceptions', value: exceptionStatus, icon: Icons.warning_amber_rounded, isError: exceptionStatus != 'None'),
-
-                                const SizedBox(height: 24),
-                                const Text('Punches', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                                const SizedBox(height: 12),
-                                if (dynamicPunches.isEmpty)
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(12)),
-                                    child: const Row(
-                                      children: [
-                                        Icon(Icons.info_outline, size: 16, color: Colors.grey),
-                                        SizedBox(width: 8),
-                                        Text('No punches recorded.', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
-                                      ],
-                                    ),
-                                  )
-                                else
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: dynamicPunches.map((p) => Chip(
-                                      avatar: Icon(Icons.fingerprint, size: 16, color: Colors.grey[600]),
-                                      label: Text('${p.type}: ${p.time}', style: const TextStyle(fontWeight: FontWeight.w600)),
-                                      backgroundColor: Colors.grey[50],
-                                      side: BorderSide(color: Colors.grey[200]!),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      visualDensity: VisualDensity.compact,
-                                    )).toList(),
-                                  ),
+                                _buildGradientStatCard(
+                                    yesterdayCardLabel, relativeYesterdayHours,
+                                    [
+                                      const Color(0xFF42A5F5),
+                                      const Color(0xFF1E88E5)
+                                    ]),
+                                const SizedBox(width: 12),
+                                _buildGradientStatCard(
+                                    'Exceptions', '$_exceptionsCount', [
+                                  const Color(0xFFEF5350),
+                                  const Color(0xFFE53935)
+                                ]),
+                                const SizedBox(width: 12),
+                                _buildGradientStatCard('Status', 'Draft', [
+                                  const Color(0xFFFFA726),
+                                  const Color(0xFFFF7043)
+                                ]),
                               ],
                             ),
-                          ),
-                          const SizedBox(height: 40),
-                        ],
+                            const SizedBox(height: 24),
+
+                            // Week Grid Card - Preserved
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                      color: Colors.black.withOpacity(0.03),
+                                      blurRadius: 15,
+                                      offset: const Offset(0, 5))
+                                ],
+                              ),
+                              padding: const EdgeInsets.all(16),
+                              child: _cells != null
+                                  ? _TimesheetWeekGrid(
+                                cells: _cells,
+                                weekStart: _currentWeekStart,
+                                selectedDate: _selectedDate,
+                                onTapDay: (date) =>
+                                    setState(() => _selectedDate = date),
+                              )
+                                  : const SizedBox(),
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            // Selected Day Details Card - Preserved
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(24),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                      color: Colors.black.withOpacity(0.03),
+                                      blurRadius: 15,
+                                      offset: const Offset(0, 5))
+                                ],
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment
+                                        .spaceBetween,
+                                    children: [
+                                      Text(
+                                        DateFormat('EEEE, d MMM').format(
+                                            _selectedDate),
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 18,
+                                            color: Colors.black87),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: pillData.bg,
+                                          borderRadius: BorderRadius.circular(
+                                              20),
+                                        ),
+                                        child: Text(
+                                          pillData.label,
+                                          style: TextStyle(color: pillData.fg,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const Divider(
+                                      height: 32, color: Color(0xFFEEEEEE)),
+
+                                  _DetailRow(label: 'Schedule',
+                                      value: scheduleDisplay,
+                                      icon: Icons.access_time),
+                                  const SizedBox(height: 16),
+                                  _DetailRow(label: 'Total Hours',
+                                      value: selectedDurLabel,
+                                      icon: Icons.timer),
+                                  const SizedBox(height: 16),
+                                  _DetailRow(label: 'Exceptions',
+                                      value: exceptionStatus,
+                                      icon: Icons.warning_amber_rounded,
+                                      isError: exceptionStatus != 'None'),
+
+                                  const SizedBox(height: 24),
+                                  const Text('Punches', style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.grey)),
+                                  const SizedBox(height: 12),
+                                  if (dynamicPunches.isEmpty)
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                          color: Colors.grey[50],
+                                          borderRadius: BorderRadius.circular(
+                                              12)),
+                                      child: const Row(
+                                        children: [
+                                          Icon(Icons.info_outline, size: 16,
+                                              color: Colors.grey),
+                                          SizedBox(width: 8),
+                                          Text('No punches recorded.',
+                                              style: TextStyle(
+                                                  color: Colors.grey,
+                                                  fontStyle: FontStyle.italic)),
+                                        ],
+                                      ),
+                                    )
+                                  else
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: dynamicPunches.map((p) =>
+                                          Chip(
+                                            avatar: Icon(
+                                                Icons.fingerprint, size: 16,
+                                                color: Colors.grey[600]),
+                                            label: Text('${p.type}: ${p.time}',
+                                                style: const TextStyle(
+                                                    fontWeight: FontWeight
+                                                        .w600)),
+                                            backgroundColor: Colors.grey[50],
+                                            side: BorderSide(
+                                                color: Colors.grey[200]!),
+                                            shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius
+                                                    .circular(8)),
+                                            visualDensity: VisualDensity
+                                                .compact,
+                                          )).toList(),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 40),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -2116,6 +2262,272 @@ class _TimesheetScreenState extends State<TimesheetScreen>
     );
   }
 }
+//   @override
+//   Widget build(BuildContext context) {
+//     super.build(context);
+//
+//     final selectedKey = DateFormat('yyyy-MM-dd').format(_selectedDate);
+//     final selectedRows = _rowsByDate[selectedKey] ?? const <Map<String, dynamic>>[];
+//     final selectedMins = selectedRows.fold<int>(0, (acc, r) => acc + _minsOfRow(r));
+//     final selectedDurLabel = _fmtHrsMins(selectedMins);
+//     final dynamicPunches = _getDynamicPunchesForSelected();
+//     String exceptionStatus = 'None';
+//     final anomaly = _summaryData?.anomaly;
+//     if (anomaly != null) {
+//       try {
+//         final anomalyDate = DateTime.tryParse(anomaly.date);
+//         if (anomalyDate != null && _isSameDay(anomalyDate, _selectedDate)) {
+//           exceptionStatus = anomaly.message;
+//         }
+//       } catch (_) {}
+//     }
+//     final dayBeforeSelected = _selectedDate.subtract(const Duration(days: 1));
+//     final keyDayBefore = DateFormat('yyyy-MM-dd').format(dayBeforeSelected);
+//     final relativeYesterdayHours = _fmtHrsMins(_minutesByDate[keyDayBefore] ?? 0);
+//     final yesterdayCardLabel = _isSameDay(_selectedDate, DateTime.now())
+//         ? 'Yesterday'
+//         : DateFormat('EEE d').format(dayBeforeSelected);
+//     final selectedRow = selectedRows.isNotEmpty ? selectedRows.first : null;
+//     final rawStatus = selectedRow?['status']?.toString().toUpperCase() ?? 'PENDING';
+//     final pillData = _getPillData(rawStatus);
+//     final roster = _rosterByDate[selectedKey];
+//     final String? shiftStart = roster?.shift?.startTime ?? selectedRow?['startTime']?.toString();
+//     final String? shiftEnd = roster?.shift?.endTime ?? selectedRow?['endTime']?.toString();
+//     final String scheduleDisplay = (shiftStart != null && shiftEnd != null)
+//         ? _calculateScheduleDuration(shiftStart, shiftEnd)
+//         : '—';
+//
+//     return Scaffold(
+//       backgroundColor: const Color(0xFFF5F7FA),
+//       body: Stack(
+//         children: [
+//           // 1. HEADER BACKGROUND (Gradient)
+//           Container(
+//             height: 240,
+//             decoration: const BoxDecoration(
+//               gradient: LinearGradient(
+//                 colors: [_kPrimaryColor, _kSecondaryColor],
+//                 begin: Alignment.topLeft,
+//                 end: Alignment.bottomRight,
+//               ),
+//             ),
+//             child: Stack(
+//               children: [
+//                 Positioned(
+//                   right: -20,
+//                   top: -20,
+//                   child: Icon(Icons.timer_rounded, size: 150, color: Colors.white.withOpacity(0.1)),
+//                 ),
+//               ],
+//             ),
+//           ),
+//
+//           // 2. MAIN CONTENT
+//           SafeArea(
+//             bottom: false,
+//             child: Column(
+//               children: [
+//                 // HEADER SECTION (Fixed)
+//                 Padding(
+//                   padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+//                   child: Column(
+//                     children: [
+//                       Row(
+//                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+//                         children: [
+//                           const Column(
+//                             crossAxisAlignment: CrossAxisAlignment.start,
+//                             children: [
+//                               Text('My Timesheet', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+//                               SizedBox(height: 4),
+//                               Text('Track & Manage', style: TextStyle(color: Colors.white70, fontSize: 14)),
+//                             ],
+//                           ),
+//                           // Container(
+//                           //   decoration: BoxDecoration(
+//                           //     color: Colors.white.withOpacity(0.2),
+//                           //     borderRadius: BorderRadius.circular(12),
+//                           //   ),
+//                           //   child: IconButton(
+//                           //     icon: const Icon(Icons.save_alt_rounded, color: Colors.white),
+//                           //     onPressed: widget.onSaveDraft,
+//                           //   ),
+//                           // ),
+//                         ],
+//                       ),
+//                       const SizedBox(height: 24),
+//
+//                       // Week Navigator (Inside Header)
+//                       Container(
+//                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+//                         decoration: BoxDecoration(
+//                           color: Colors.white.withOpacity(0.15),
+//                           borderRadius: BorderRadius.circular(16),
+//                           border: Border.all(color: Colors.white.withOpacity(0.2)),
+//                         ),
+//                         child: Row(
+//                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
+//                           children: [
+//                             IconButton(
+//                               icon: const Icon(Icons.chevron_left, color: Colors.white),
+//                               onPressed: () => _navigateToWeek(-1),
+//                             ),
+//                             Text(
+//                               _weekLabel(),
+//                               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 16),
+//                             ),
+//                             IconButton(
+//                               icon: const Icon(Icons.chevron_right, color: Colors.white),
+//                               onPressed: () => _navigateToWeek(1),
+//                             ),
+//                           ],
+//                         ),
+//                       ),
+//                     ],
+//                   ),
+//                 ),
+//
+//                 // BODY SECTION (Full Screen White Sheet)
+//                 Expanded(
+//                   child: Container(
+//                     width: double.infinity,
+//                     decoration: const BoxDecoration(
+//                       color: Color(0xFFF5F7FA),
+//                       borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+//                     ),
+//                     child: ClipRRect(
+//                       borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+//                       child: _loadFuture == null && _cells == null
+//                           ? const Center(child: CircularProgressIndicator())
+//                           : ListView(
+//                         padding: const EdgeInsets.all(20),
+//                         children: [
+//                           // Summary Text
+//                           Center(
+//                             child: Text(
+//                               'Total: $_thisWeekStr  |  Exceptions: $_exceptionsCount',
+//                               style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.w500, fontSize: 13),
+//                             ),
+//                           ),
+//                           const SizedBox(height: 16),
+//
+//                           // Stats Row (Responsive)
+//                           Row(
+//                             children: [
+//                               _buildGradientStatCard(yesterdayCardLabel, relativeYesterdayHours, [const Color(0xFF42A5F5), const Color(0xFF1E88E5)]),
+//                               const SizedBox(width: 12),
+//                               _buildGradientStatCard('Exceptions', '$_exceptionsCount', [const Color(0xFFEF5350), const Color(0xFFE53935)]),
+//                               const SizedBox(width: 12),
+//                               _buildGradientStatCard('Status', 'Draft', [const Color(0xFFFFA726), const Color(0xFFFF7043)]),
+//                             ],
+//                           ),
+//                           const SizedBox(height: 24),
+//
+//                           // Week Grid Card
+//                           Container(
+//                             decoration: BoxDecoration(
+//                               color: Colors.white,
+//                               borderRadius: BorderRadius.circular(20),
+//                               boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 5))],
+//                             ),
+//                             padding: const EdgeInsets.all(16),
+//                             child: _cells != null
+//                                 ? _TimesheetWeekGrid(
+//                               cells: _cells,
+//                               weekStart: _currentWeekStart,
+//                               selectedDate: _selectedDate,
+//                               onTapDay: (date) => setState(() => _selectedDate = date),
+//                             )
+//                                 : const SizedBox(),
+//                           ),
+//
+//                           const SizedBox(height: 24),
+//
+//                           // Selected Day Details Card
+//                           Container(
+//                             width: double.infinity,
+//                             padding: const EdgeInsets.all(24),
+//                             decoration: BoxDecoration(
+//                               color: Colors.white,
+//                               borderRadius: BorderRadius.circular(20),
+//                               boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 5))],
+//                             ),
+//                             child: Column(
+//                               crossAxisAlignment: CrossAxisAlignment.start,
+//                               children: [
+//                                 Row(
+//                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+//                                   children: [
+//                                     Text(
+//                                       DateFormat('EEEE, d MMM').format(_selectedDate),
+//                                       style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Colors.black87),
+//                                     ),
+//                                     Container(
+//                                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+//                                       decoration: BoxDecoration(
+//                                         color: pillData.bg,
+//                                         borderRadius: BorderRadius.circular(20),
+//                                       ),
+//                                       child: Text(
+//                                         pillData.label,
+//                                         style: TextStyle(color: pillData.fg, fontSize: 12, fontWeight: FontWeight.bold),
+//                                       ),
+//                                     ),
+//                                   ],
+//                                 ),
+//                                 const Divider(height: 32, color: Color(0xFFEEEEEE)),
+//
+//                                 _DetailRow(label: 'Schedule', value: scheduleDisplay, icon: Icons.access_time),
+//                                 const SizedBox(height: 16),
+//                                 _DetailRow(label: 'Total Hours', value: selectedDurLabel, icon: Icons.timer),
+//                                 const SizedBox(height: 16),
+//                                 _DetailRow(label: 'Exceptions', value: exceptionStatus, icon: Icons.warning_amber_rounded, isError: exceptionStatus != 'None'),
+//
+//                                 const SizedBox(height: 24),
+//                                 const Text('Punches', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+//                                 const SizedBox(height: 12),
+//                                 if (dynamicPunches.isEmpty)
+//                                   Container(
+//                                     padding: const EdgeInsets.all(12),
+//                                     decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(12)),
+//                                     child: const Row(
+//                                       children: [
+//                                         Icon(Icons.info_outline, size: 16, color: Colors.grey),
+//                                         SizedBox(width: 8),
+//                                         Text('No punches recorded.', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+//                                       ],
+//                                     ),
+//                                   )
+//                                 else
+//                                   Wrap(
+//                                     spacing: 8,
+//                                     runSpacing: 8,
+//                                     children: dynamicPunches.map((p) => Chip(
+//                                       avatar: Icon(Icons.fingerprint, size: 16, color: Colors.grey[600]),
+//                                       label: Text('${p.type}: ${p.time}', style: const TextStyle(fontWeight: FontWeight.w600)),
+//                                       backgroundColor: Colors.grey[50],
+//                                       side: BorderSide(color: Colors.grey[200]!),
+//                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+//                                       visualDensity: VisualDensity.compact,
+//                                     )).toList(),
+//                                   ),
+//                               ],
+//                             ),
+//                           ),
+//                           const SizedBox(height: 40),
+//                         ],
+//                       ),
+//                     ),
+//                   ),
+//                 ),
+//               ],
+//             ),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+// }
 
 // --- Helper Widgets ---
 
